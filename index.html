@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixels - Photo Editor</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .canvas-checkerboard {
+            background: repeating-conic-gradient(#2a2a2a 0% 25%, #323232 0% 50%) 50% / 20px 20px;
+        }
+        .crop-overlay {
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            cursor: move;
+        }
+        .crop-handle {
+            width: 12px;
+            height: 12px;
+            background: white;
+            border: 2px solid #3b82f6;
+            border-radius: 50%;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            z-index: 50;
+        }
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            border: none;
+        }
+    </style>
+</head>
+<body class="bg-neutral-800 text-neutral-100 overflow-hidden">
+    <!-- Menu Bar -->
+    <div class="bg-neutral-900 border-b border-neutral-700 px-4 py-2 flex items-center gap-6 text-sm">
+        <div class="text-blue-500 font-bold text-base">⚡ Pixels</div>
+        
+        <div class="dropdown relative">
+            <button class="px-2 py-1 hover:bg-neutral-700 rounded">File</button>
+            <div class="dropdown-content bg-neutral-800 border border-neutral-700 rounded shadow-xl min-w-[200px]">
+                <button onclick="document.getElementById('fileInput').click()" class="w-full text-left px-4 py-2 hover:bg-neutral-700 flex justify-between">
+                    <span>Open</span><span class="text-neutral-500">Ctrl+O</span>
+                </button>
+                <button onclick="downloadImage()" class="w-full text-left px-4 py-2 hover:bg-neutral-700 flex justify-between">
+                    <span>Export</span><span class="text-neutral-500">Ctrl+S</span>
+                </button>
+                <div class="border-t border-neutral-700 my-1"></div>
+                <button onclick="window.location.reload()" class="w-full text-left px-4 py-2 hover:bg-neutral-700">New Project</button>
+            </div>
+        </div>
+
+        <div class="dropdown relative">
+            <button class="px-2 py-1 hover:bg-neutral-700 rounded">Edit</button>
+            <div class="dropdown-content bg-neutral-800 border border-neutral-700 rounded shadow-xl min-w-[200px]">
+                <button onclick="undo()" class="w-full text-left px-4 py-2 hover:bg-neutral-700 flex justify-between">
+                    <span>Undo</span><span class="text-neutral-500">Ctrl+Z</span>
+                </button>
+                <button onclick="redo()" class="w-full text-left px-4 py-2 hover:bg-neutral-700 flex justify-between">
+                    <span>Redo</span><span class="text-neutral-500">Ctrl+Y</span>
+                </button>
+                <div class="border-t border-neutral-700 my-1"></div>
+                <button onclick="resetFilters()" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Reset All</button>
+            </div>
+        </div>
+
+        <div class="dropdown relative">
+            <button class="px-2 py-1 hover:bg-neutral-700 rounded">Image</button>
+            <div class="dropdown-content bg-neutral-800 border border-neutral-700 rounded shadow-xl min-w-[200px]">
+                <button onclick="switchTab('transform'); startCrop()" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Crop</button>
+                <button onclick="switchTab('transform')" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Resize</button>
+                <button onclick="flipHorizontal()" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Flip Horizontal</button>
+                <button onclick="flipVertical()" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Flip Vertical</button>
+            </div>
+        </div>
+
+        <div class="dropdown relative">
+            <button class="px-2 py-1 hover:bg-neutral-700 rounded">Filter</button>
+            <div class="dropdown-content bg-neutral-800 border border-neutral-700 rounded shadow-xl min-w-[200px]">
+                <button onclick="switchTab('filters'); applyPreset('grayscale')" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Black & White</button>
+                <button onclick="switchTab('filters'); applyPreset('sepia')" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Sepia</button>
+                <button onclick="switchTab('filters'); applyPreset('vintage')" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Vintage</button>
+                <button onclick="switchTab('filters'); applyPreset('cold')" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Cool Tone</button>
+                <button onclick="switchTab('filters'); applyPreset('warm')" class="w-full text-left px-4 py-2 hover:bg-neutral-700">Warm Tone</button>
+            </div>
+        </div>
+
+        <div class="dropdown relative">
+            <button class="px-2 py-1 hover:bg-neutral-700 rounded">Help</button>
+            <div class="dropdown-content bg-neutral-800 border border-neutral-700 rounded shadow-xl min-w-[250px]">
+                <div class="px-4 py-3 border-b border-neutral-700">
+                    <div class="font-bold text-blue-500">Pixels Photo Editor</div>
+                    <div class="text-xs text-neutral-400 mt-1">Professional web-based image editor</div>
+                </div>
+                <div class="px-4 py-2 text-xs">
+                    <div class="font-semibold mb-2">Keyboard Shortcuts:</div>
+                    <div class="space-y-1 text-neutral-400">
+                        <div>Ctrl+O - Open image</div>
+                        <div>Ctrl+S - Export image</div>
+                        <div>Ctrl+Z - Undo</div>
+                        <div>Ctrl+Y - Redo</div>
+                        <div>Enter - Apply crop</div>
+                        <div>Esc - Cancel crop</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Layout -->
+    <div class="grid grid-cols-[60px_280px_1fr_280px] h-[calc(100vh-41px)]">
+        <!-- Toolbar -->
+        <div class="bg-neutral-900 border-r border-neutral-800 p-2 flex flex-col gap-2">
+            <button onclick="selectTool(0)" class="tool-btn w-11 h-11 bg-neutral-800 hover:bg-neutral-700 rounded flex items-center justify-center text-xl" title="Move">↔</button>
+            <button onclick="selectTool(1); startCrop()" class="tool-btn w-11 h-11 bg-blue-600 hover:bg-blue-700 rounded flex items-center justify-center text-xl" title="Crop">✂</button>
+            <button onclick="selectTool(2)" class="tool-btn w-11 h-11 bg-neutral-800 hover:bg-neutral-700 rounded flex items-center justify-center text-xl" title="Brush">🖌</button>
+            <button onclick="selectTool(3)" class="tool-btn w-11 h-11 bg-neutral-800 hover:bg-neutral-700 rounded flex items-center justify-center text-xl" title="Text">T</button>
+            <button onclick="selectTool(4)" class="tool-btn w-11 h-11 bg-neutral-800 hover:bg-neutral-700 rounded flex items-center justify-center text-xl" title="Shape">◼</button>
+            <button onclick="selectTool(5)" class="tool-btn w-11 h-11 bg-neutral-800 hover:bg-neutral-700 rounded flex items-center justify-center text-xl" title="Zoom">🔍</button>
+        </div>
+
+        <!-- Left Panel -->
+        <div class="bg-neutral-850 border-r border-neutral-800 flex flex-col">
+            <div class="bg-neutral-900 border-b border-neutral-800 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                Quick Actions
+            </div>
+            <div class="p-4 space-y-2">
+                <button onclick="document.getElementById('fileInput').click()" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold text-sm">
+                    📁 Open Image
+                </button>
+                <button onclick="resetFilters()" class="w-full bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm">
+                    🔄 Reset All
+                </button>
+                <button onclick="downloadImage()" class="w-full bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm">
+                    💾 Export Image
+                </button>
+                <input type="file" id="fileInput" accept="image/*" class="hidden">
+            </div>
+
+            <div class="border-t border-neutral-800 mt-4 pt-4 px-4">
+                <div class="text-xs font-semibold uppercase tracking-wide text-neutral-400 mb-3">History</div>
+                <div class="space-y-2">
+                    <button onclick="undo()" class="w-full bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm text-left disabled:opacity-50 disabled:cursor-not-allowed" id="undoBtn" disabled>
+                        ← Undo
+                    </button>
+                    <button onclick="redo()" class="w-full bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm text-left disabled:opacity-50 disabled:cursor-not-allowed" id="redoBtn" disabled>
+                        → Redo
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Canvas Area -->
+        <div class="bg-neutral-900 flex items-center justify-center overflow-auto relative" id="canvasContainer">
+            <div id="uploadArea" class="text-center text-neutral-500">
+                <svg class="w-20 h-20 mx-auto mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="mb-2">Drag and drop an image here</p>
+                <p class="opacity-60 mb-4">or</p>
+                <button onclick="document.getElementById('fileInput').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded font-semibold">
+                    Choose File
+                </button>
+            </div>
+            <div id="cropOverlay" class="crop-overlay absolute border-2 border-blue-500 bg-blue-500/10 hidden">
+                <div class="crop-handle absolute -top-1.5 -left-1.5" data-handle="nw" style="cursor: nw-resize"></div>
+                <div class="crop-handle absolute -top-1.5 left-1/2 -translate-x-1/2" data-handle="n" style="cursor: n-resize"></div>
+                <div class="crop-handle absolute -top-1.5 -right-1.5" data-handle="ne" style="cursor: ne-resize"></div>
+                <div class="crop-handle absolute top-1/2 -translate-y-1/2 -right-1.5" data-handle="e" style="cursor: e-resize"></div>
+                <div class="crop-handle absolute -bottom-1.5 -right-1.5" data-handle="se" style="cursor: se-resize"></div>
+                <div class="crop-handle absolute -bottom-1.5 left-1/2 -translate-x-1/2" data-handle="s" style="cursor: s-resize"></div>
+                <div class="crop-handle absolute -bottom-1.5 -left-1.5" data-handle="sw" style="cursor: sw-resize"></div>
+                <div class="crop-handle absolute top-1/2 -translate-y-1/2 -left-1.5" data-handle="w" style="cursor: w-resize"></div>
+            </div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="bg-neutral-850 border-l border-neutral-800 flex flex-col">
+            <div class="bg-neutral-900 border-b border-neutral-800 flex">
+                <button onclick="switchTab('filters')" class="tab-btn flex-1 px-4 py-3 text-sm font-semibold border-b-2 border-blue-500 text-blue-500">Filters</button>
+                <button onclick="switchTab('adjust')" class="tab-btn flex-1 px-4 py-3 text-sm font-semibold border-b-2 border-transparent text-neutral-400 hover:text-neutral-200">Adjust</button>
+                <button onclick="switchTab('transform')" class="tab-btn flex-1 px-4 py-3 text-sm font-semibold border-b-2 border-transparent text-neutral-400 hover:text-neutral-200">Transform</button>
+            </div>
+
+            <div class="overflow-y-auto flex-1">
+                <!-- Filters Tab -->
+                <div id="filters-tab" class="tab-content p-4">
+                    <div class="mb-4">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-neutral-400 mb-3">Filter Presets</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="applyPreset('none')" class="filter-preset bg-neutral-800 hover:bg-neutral-700 p-8 rounded text-xs font-semibold">Original</button>
+                            <button onclick="applyPreset('grayscale')" class="filter-preset bg-neutral-800 hover:bg-neutral-700 p-8 rounded text-xs font-semibold">B&W</button>
+                            <button onclick="applyPreset('sepia')" class="filter-preset bg-neutral-800 hover:bg-neutral-700 p-8 rounded text-xs font-semibold">Sepia</button>
+                            <button onclick="applyPreset('vintage')" class="filter-preset bg-neutral-800 hover:bg-neutral-700 p-8 rounded text-xs font-semibold">Vintage</button>
+                            <button onclick="applyPreset('cold')" class="filter-preset bg-neutral-800 hover:bg-neutral-700 p-8 rounded text-xs font-semibold">Cool</button>
+                            <button onclick="applyPreset('warm')" class="filter-preset bg-neutral-800 hover:bg-neutral-700 p-8 rounded text-xs font-semibold">Warm</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Adjust Tab -->
+                <div id="adjust-tab" class="tab-content p-4 hidden">
+                    <div class="space-y-4">
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Brightness</span>
+                                <span class="text-blue-500" id="brightnessValue">100</span>
+                            </label>
+                            <input type="range" id="brightness" min="0" max="200" value="100" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Contrast</span>
+                                <span class="text-blue-500" id="contrastValue">100</span>
+                            </label>
+                            <input type="range" id="contrast" min="0" max="200" value="100" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Saturation</span>
+                                <span class="text-blue-500" id="saturationValue">100</span>
+                            </label>
+                            <input type="range" id="saturation" min="0" max="200" value="100" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Blur</span>
+                                <span class="text-blue-500" id="blurValue">0</span>
+                            </label>
+                            <input type="range" id="blur" min="0" max="10" value="0" step="0.5" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Hue</span>
+                                <span class="text-blue-500" id="hueValue">0°</span>
+                            </label>
+                            <input type="range" id="hue" min="0" max="360" value="0" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Opacity</span>
+                                <span class="text-blue-500" id="opacityValue">100%</span>
+                            </label>
+                            <input type="range" id="opacity" min="0" max="100" value="100" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div class="pb-4">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Sharpen</span>
+                                <span class="text-blue-500" id="sharpenValue">0</span>
+                            </label>
+                            <input type="range" id="sharpen" min="0" max="100" value="0" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transform Tab -->
+                <div id="transform-tab" class="tab-content p-4 hidden">
+                    <div class="space-y-4">
+                        <div class="pb-4 border-b border-neutral-700">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-neutral-400 mb-3">Image Size (px)</div>
+                            <div class="grid grid-cols-2 gap-2 mb-2">
+                                <input type="number" id="resizeWidth" placeholder="Width" class="bg-neutral-800 border border-neutral-700 px-3 py-2 rounded text-sm focus:outline-none focus:border-blue-500">
+                                <input type="number" id="resizeHeight" placeholder="Height" class="bg-neutral-800 border border-neutral-700 px-3 py-2 rounded text-sm focus:outline-none focus:border-blue-500">
+                            </div>
+                            <button onclick="applyResize()" class="w-full bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm font-semibold">Apply Resize</button>
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <div class="text-xs font-semibold uppercase tracking-wide text-neutral-400 mb-3">Crop Tool</div>
+                            <div class="space-y-2">
+                                <button onclick="startCrop()" class="w-full bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm">Start Crop</button>
+                                <button onclick="applyCrop()" class="w-full bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm font-semibold">Apply Crop</button>
+                                <button onclick="cancelCrop()" class="w-full bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm">Cancel</button>
+                            </div>
+                        </div>
+
+                        <div class="pb-4 border-b border-neutral-700">
+                            <label class="flex justify-between text-xs font-medium mb-2">
+                                <span class="text-neutral-400">Rotate</span>
+                                <span class="text-blue-500" id="rotateValue">0°</span>
+                            </label>
+                            <input type="range" id="rotate" min="0" max="360" value="0" class="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <div>
+                            <div class="text-xs font-semibold uppercase tracking-wide text-neutral-400 mb-3">Flip</div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button onclick="flipHorizontal()" class="bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm">↔ Horizontal</button>
+                                <button onclick="flipVertical()" class="bg-neutral-700 hover:bg-neutral-600 px-4 py-2 rounded text-sm">↕ Vertical</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
