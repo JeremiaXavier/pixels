@@ -17,6 +17,7 @@ interface EditorState {
     y: number;
   };
   activePanelTab: 'layers' | 'properties' | 'adjustments' | 'history';
+  cropRect: { x: number; y: number; w: number; h: number } | null;
 
   // Modals
   isNewDocOpen: boolean;
@@ -40,6 +41,7 @@ interface EditorState {
   resetViewport: () => void;
   setCursorCoordinates: (x: number, y: number) => void;
   setActivePanelTab: (tab: 'layers' | 'properties' | 'adjustments' | 'history') => void;
+  setCropRect: (rect: { x: number; y: number; w: number; h: number } | null) => void;
 
   // Modal actions
   setNewDocOpen: (open: boolean) => void;
@@ -66,6 +68,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     y: 0,
   },
   activePanelTab: 'layers',
+  cropRect: null,
 
   toolOptions: {
     brush: {
@@ -132,6 +135,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       if (tool === 'shape-line') shapeType = 'line';
       return {
         activeTool: tool,
+        cropRect: tool === 'crop' ? state.cropRect : null,
         toolOptions: {
           ...state.toolOptions,
           shape: { ...state.toolOptions.shape, shapeType },
@@ -139,6 +143,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       };
     });
   },
+
+  setCropRect: (rect) => set({ cropRect: rect }),
 
   updateToolOptions: (tool, options) => {
     set((state) => ({

@@ -18,9 +18,40 @@ import { LayerFactory } from '@/document/Layer';
 import { Button } from '@/components/ui/Button';
 
 export const OptionsBar: React.FC = () => {
-  const { activeTool, toolOptions, updateToolOptions, setZoom, viewport, resetViewport } =
-    useEditorStore();
+  const {
+    activeTool,
+    toolOptions,
+    updateToolOptions,
+    setZoom,
+    viewport,
+    resetViewport,
+    cropRect,
+    setCropRect,
+    setActiveTool,
+  } = useEditorStore();
   const { document, addLayer, cropDocument, setSelection } = useDocumentStore();
+
+  const handleApplyCrop = () => {
+    if (!document || !cropRect || cropRect.w < 5 || cropRect.h < 5) return;
+    cropDocument(Math.round(cropRect.x), Math.round(cropRect.y), Math.round(cropRect.w), Math.round(cropRect.h));
+    setCropRect(null);
+    setActiveTool('move');
+  };
+
+  const handleResetCrop = () => {
+    if (!document) return;
+    setCropRect({
+      x: 0,
+      y: 0,
+      w: document.width,
+      h: document.height,
+    });
+  };
+
+  const handleCancelCrop = () => {
+    setCropRect(null);
+    setActiveTool('move');
+  };
 
   const handleAddText = () => {
     if (!document) return;
@@ -234,15 +265,28 @@ export const OptionsBar: React.FC = () => {
       {/* Crop Options */}
       {activeTool === 'crop' && (
         <div className="flex items-center gap-3 text-[11px]">
-          <span className="text-editor-muted">Aspect Ratio:</span>
+          <span className="text-editor-muted font-medium">Aspect:</span>
           <select
             value={toolOptions.crop.aspectRatio}
-            onChange={(e) =>
-              updateToolOptions('crop', {
-                aspectRatio: e.target.value as 'free' | '1:1' | '16:9' | '4:3' | '3:2',
-              })
-            }
-            className="bg-[#282830] text-editor-text border border-[#383842] rounded px-2 py-0.5 text-xs"
+            onChange={(e) => {
+              const newRatio = e.target.value as 'free' | '1:1' | '16:9' | '4:3' | '3:2';
+              updateToolOptions('crop', { aspectRatio: newRatio });
+              if (document && cropRect && newRatio !== 'free') {
+                const ratioMap = { '1:1': 1, '16:9': 16 / 9, '4:3': 4 / 3, '3:2': 3 / 2 };
+                const r = ratioMap[newRatio];
+                if (r) {
+                  let newH = Math.round(cropRect.w / r);
+                  if (cropRect.y + newH > document.height) {
+                    newH = document.height - cropRect.y;
+                    const newW = Math.round(newH * r);
+                    setCropRect({ ...cropRect, w: newW, h: newH });
+                  } else {
+                    setCropRect({ ...cropRect, h: newH });
+                  }
+                }
+              }
+            }}
+            className="bg-[#282830] text-editor-text border border-[#383842] rounded px-2 py-0.5 text-xs focus:outline-none"
           >
             <option value="free">Freeform</option>
             <option value="1:1">1:1 Square</option>
@@ -250,7 +294,47 @@ export const OptionsBar: React.FC = () => {
             <option value="4:3">4:3 Standard</option>
             <option value="3:2">3:2 Photo</option>
           </select>
-          <span className="text-editor-dim">Drag on canvas to define crop region</span>
+
+          {cropRect && cropRect.w > 0 && cropRect.h > 0 && (
+            <div className="flex items-center gap-2 px-2 py-0.5 bg-[#202026] rounded border border-[#383842] text-xs">
+              <span className="text-editor-muted">W:</span>
+              <span className="font-mono text-editor-text">{Math.round(cropRect.w)}px</span>
+              <span className="text-editor-muted ml-1">H:</span>
+              <span className="font-mono text-editor-text">{Math.round(cropRect.h)}px</span>
+            </div>
+          )}
+
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleApplyCrop}
+            className="h-6 gap-1 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs px-2.5"
+            title="Apply Crop (Enter)"
+          >
+            <Check size={13} />
+            <span>Apply Crop</span>
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleResetCrop}
+            className="h-6 gap-1 text-xs px-2"
+            title="Reset Crop to Full Document"
+          >
+            <span>Reset</span>
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleCancelCrop}
+            className="h-6 gap-1 text-xs px-2"
+            title="Cancel Crop (Esc)"
+          >
+            <X size={13} />
+            <span>Cancel</span>
+          </Button>
         </div>
       )}
 

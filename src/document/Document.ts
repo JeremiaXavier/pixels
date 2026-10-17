@@ -248,11 +248,17 @@ export class DocumentManager {
         const ctx = newCanvas.getContext('2d');
         if (ctx) {
           if (rLayer.canvas) {
-            ctx.drawImage(rLayer.canvas, rLayer.x - safeX, rLayer.y - safeY);
-          } else if (rLayer.dataUrl) {
-            const img = new Image();
-            img.src = rLayer.dataUrl;
-            ctx.drawImage(img, rLayer.x - safeX, rLayer.y - safeY);
+            ctx.drawImage(
+              rLayer.canvas,
+              0,
+              0,
+              rLayer.canvas.width,
+              rLayer.canvas.height,
+              rLayer.x - safeX,
+              rLayer.y - safeY,
+              rLayer.width,
+              rLayer.height
+            );
           }
         }
         return {
@@ -263,6 +269,19 @@ export class DocumentManager {
           height: h,
           canvas: newCanvas,
           dataUrl: newCanvas.toDataURL(),
+        };
+      } else if (layer.type === 'shape' && (layer as any).shapeType === 'line' && (layer as any).points) {
+        const sLayer = layer as any;
+        return {
+          ...sLayer,
+          x: sLayer.x - safeX,
+          y: sLayer.y - safeY,
+          points: [
+            sLayer.points[0] - safeX,
+            sLayer.points[1] - safeY,
+            sLayer.points[2] - safeX,
+            sLayer.points[3] - safeY,
+          ],
         };
       } else {
         return {

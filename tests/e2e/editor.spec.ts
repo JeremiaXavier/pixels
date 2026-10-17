@@ -135,11 +135,18 @@ test.describe('Pixels Image Editor E2E', () => {
       await page.mouse.down();
       await page.mouse.move(box.x + 300, box.y + 300);
       await page.mouse.up();
-      await expect(page.getByText('Apply Crop')).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
-      // Cancel crop
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await expect(page.getByText('Apply Crop')).not.toBeVisible();
+      await expect(page.getByRole('button', { name: /Apply Crop/i }).first()).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Cancel' }).first()).toBeVisible();
+
+      // Click Apply Crop button
+      await page.getByRole('button', { name: /Apply Crop/i }).first().click();
+
+      // Verify the crop was applied and the crop confirmation overlay dismissed
+      await expect(page.getByRole('button', { name: 'Cancel' })).not.toBeVisible();
+
+      // Undo crop
+      await page.keyboard.press('Control+z');
+      await expect(page.getByText('Doc: 1080 × 1080 px')).toBeVisible();
 
       // 5. Test Eyedropper Tool
       await page.keyboard.press('i');

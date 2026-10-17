@@ -6,7 +6,7 @@ import { Compositor } from '@/canvas/Compositor';
 import { calculateFitZoom } from '@/canvas/CoordinateSystem';
 import { historyManager } from '@/history/HistoryManager';
 import { LayerFactory } from '@/document/Layer';
-import { Check, X as CloseIcon } from 'lucide-react';
+import { Check, X as CloseIcon, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 export const CanvasWorkspace: React.FC = () => {
@@ -24,6 +24,9 @@ export const CanvasWorkspace: React.FC = () => {
     setPan,
     setCursorCoordinates,
     setActivePanelTab,
+    cropRect,
+    setCropRect,
+    setActiveTool,
   } = useEditorStore();
 
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -37,11 +40,11 @@ export const CanvasWorkspace: React.FC = () => {
   );
 
   // Interactive crop state
-  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(
-    null
-  );
   const isCroppingRef = useRef(false);
   const cropStartRef = useRef<{ x: number; y: number } | null>(null);
+  const cropInitialRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const cropHandleRef = useRef<string>('none');
+  const [hoverCropHandle, setHoverCropHandle] = useState<string>('none');
 
   // Interactive shape drawing state
   const [shapePreview, setShapePreview] = useState<{
@@ -70,6 +73,47 @@ export const CanvasWorkspace: React.FC = () => {
     if (!document || !mainCanvasRef.current) return;
     Compositor.compositeToCanvas(document, mainCanvasRef.current);
   }, [document]);
+
+  // Auto-initialize crop region to full document boundaries when entering crop tool
+  useEffect(() => {
+    if (activeTool === 'crop' && document) {
+      if (!cropRect) {
+        setCropRect({
+          x: 0,
+          y: 0,
+          w: document.width,
+          h: document.height,
+        });
+      }
+    }
+  }, [activeTool, document?.id]);
+
+  // Determine which handle or region of the crop box is under the pointer
+  const getCropHandle = useCallback(
+    (docX: number, docY: number, rect: { x: number; y: number; w: number; h: number } | null): string => {
+      if (!rect || rect.w <= 0 || rect.h <= 0) return 'create';
+      const tol = 16 / Math.max(0.1, viewport.zoom);
+      const { x, y, w, h } = rect;
+
+      // Corners
+      if (Math.hypot(docX - x, docY - y) <= tol) return 'nw';
+      if (Math.hypot(docX - (x + w), docY - y) <= tol) return 'ne';
+      if (Math.hypot(docX - x, docY - (y + h)) <= tol) return 'sw';
+      if (Math.hypot(docX - (x + w), docY - (y + h)) <= tol) return 'se';
+
+      // Edges
+      if (Math.abs(docY - y) <= tol && docX >= x - tol && docX <= x + w + tol) return 'n';
+      if (Math.abs(docY - (y + h)) <= tol && docX >= x - tol && docX <= x + w + tol) return 's';
+      if (Math.abs(docX - x) <= tol && docY >= y - tol && docY <= y + h + tol) return 'w';
+      if (Math.abs(docX - (x + w)) <= tol && docY >= y - tol && docY <= y + h + tol) return 'e';
+
+      // Inside crop rectangle (reposition entire box)
+      if (docX >= x && docX <= x + w && docY >= y && docY <= y + h) return 'inside';
+
+      return 'create';
+    },
+    [viewport.zoom]
+  );
 
   // Spacebar pan listener
   useEffect(() => {
@@ -231,11 +275,23 @@ export const CanvasWorkspace: React.FC = () => {
 
     // Handle Crop Tool
     if (activeTool === 'crop') {
+      const handle = getCropHandle(toolEvt.docPoint.x, toolEvt.docPoint.y, cropRect);
+      cropHandleRef.current = handle;
       isCroppingRef.current = true;
-      const clampedX = Math.max(0, Math.min(document.width, toolEvt.docPoint.x));
-      const clampedY = Math.max(0, Math.min(document.height, toolEvt.docPoint.y));
-      cropStartRef.current = { x: clampedX, y: clampedY };
-      setCropRect({ x: clampedX, y: clampedY, w: 0, h: 0 });
+      cropStartRef.current = { x: toolEvt.docPoint.x, y: toolEvt.docPoint.y };
+
+      const baseRect =
+        cropRect && cropRect.w >= 10 && cropRect.h >= 10
+          ? cropRect
+          : { x: 0, y: 0, w: document.width, h: document.height };
+      cropInitialRectRef.current = { ...baseRect };
+
+      if (handle === 'create') {
+        const clampedX = Math.max(0, Math.min(document.width, toolEvt.docPoint.x));
+        const clampedY = Math.max(0, Math.min(document.height, toolEvt.docPoint.y));
+        cropStartRef.current = { x: clampedX, y: clampedY };
+        setCropRect({ x: clampedX, y: clampedY, w: 0, h: 0 });
+      }
       return;
     }
 
@@ -319,24 +375,88 @@ export const CanvasWorkspace: React.FC = () => {
       return;
     }
 
+    // Track crop hover handle when not dragging
+    if (activeTool === 'crop' && !isCroppingRef.current) {
+      const hnd = getCropHandle(toolEvt.docPoint.x, toolEvt.docPoint.y, cropRect);
+      setHoverCropHandle(hnd);
+    }
+
     // Handle Crop Tool dragging
-    if (isCroppingRef.current && cropStartRef.current) {
-      const sx = cropStartRef.current.x;
-      const sy = cropStartRef.current.y;
+    if (isCroppingRef.current && cropStartRef.current && cropInitialRectRef.current) {
+      const handle = cropHandleRef.current;
+      const init = cropInitialRectRef.current;
       const cx = toolEvt.docPoint.x;
       const cy = toolEvt.docPoint.y;
+      const dx = cx - cropStartRef.current.x;
+      const dy = cy - cropStartRef.current.y;
 
-      const clampedX = Math.max(0, Math.min(document.width, cx));
-      const clampedY = Math.max(0, Math.min(document.height, cy));
+      if (handle === 'inside') {
+        const newX = Math.max(0, Math.min(document.width - init.w, Math.round(init.x + dx)));
+        const newY = Math.max(0, Math.min(document.height - init.h, Math.round(init.y + dy)));
+        setCropRect({ x: newX, y: newY, w: init.w, h: init.h });
+        return;
+      }
 
-      let minX = Math.round(Math.min(sx, clampedX));
-      let minY = Math.round(Math.min(sy, clampedY));
-      let w = Math.round(Math.abs(clampedX - sx));
-      let h = Math.round(Math.abs(clampedY - sy));
+      if (handle === 'create') {
+        const sx = cropStartRef.current.x;
+        const sy = cropStartRef.current.y;
+        const clampedX = Math.max(0, Math.min(document.width, cx));
+        const clampedY = Math.max(0, Math.min(document.height, cy));
 
+        let minX = Math.round(Math.min(sx, clampedX));
+        let minY = Math.round(Math.min(sy, clampedY));
+        let w = Math.round(Math.abs(clampedX - sx));
+        let h = Math.round(Math.abs(clampedY - sy));
+
+        const ratio = toolOptions.crop.aspectRatio;
+        if (ratio !== 'free' && w > 0 && h > 0) {
+          const aspectMap: Record<string, number> = {
+            '1:1': 1,
+            '16:9': 16 / 9,
+            '4:3': 4 / 3,
+            '3:2': 3 / 2,
+          };
+          const targetRatio = aspectMap[ratio];
+          if (targetRatio) {
+            h = Math.round(w / targetRatio);
+            if (minY + h > document.height) {
+              h = document.height - minY;
+              w = Math.round(h * targetRatio);
+            }
+          }
+        }
+
+        setCropRect({ x: minX, y: minY, w, h });
+        return;
+      }
+
+      // Handle edge and corner resizing
+      let newX = init.x;
+      let newY = init.y;
+      let newW = init.w;
+      let newH = init.h;
+
+      if (handle.includes('e')) {
+        newW = Math.max(10, Math.min(document.width - init.x, Math.round(init.w + dx)));
+      }
+      if (handle.includes('s')) {
+        newH = Math.max(10, Math.min(document.height - init.y, Math.round(init.h + dy)));
+      }
+      if (handle.includes('w')) {
+        const potentialX = Math.max(0, Math.min(init.x + init.w - 10, Math.round(init.x + dx)));
+        newW = init.x + init.w - potentialX;
+        newX = potentialX;
+      }
+      if (handle.includes('n')) {
+        const potentialY = Math.max(0, Math.min(init.y + init.h - 10, Math.round(init.y + dy)));
+        newH = init.y + init.h - potentialY;
+        newY = potentialY;
+      }
+
+      // Maintain aspect ratio if set
       const ratio = toolOptions.crop.aspectRatio;
-      if (ratio !== 'free' && w > 0 && h > 0) {
-        const aspectMap = {
+      if (ratio !== 'free' && newW > 0 && newH > 0) {
+        const aspectMap: Record<string, number> = {
           '1:1': 1,
           '16:9': 16 / 9,
           '4:3': 4 / 3,
@@ -344,15 +464,23 @@ export const CanvasWorkspace: React.FC = () => {
         };
         const targetRatio = aspectMap[ratio];
         if (targetRatio) {
-          h = Math.round(w / targetRatio);
-          if (minY + h > document.height) {
-            h = document.height - minY;
-            w = Math.round(h * targetRatio);
+          if (handle.includes('e') || handle.includes('w')) {
+            newH = Math.round(newW / targetRatio);
+            if (newY + newH > document.height) {
+              newH = document.height - newY;
+              newW = Math.round(newH * targetRatio);
+            }
+          } else {
+            newW = Math.round(newH * targetRatio);
+            if (newX + newW > document.width) {
+              newW = document.width - newX;
+              newH = Math.round(newW / targetRatio);
+            }
           }
         }
       }
 
-      setCropRect({ x: minX, y: minY, w, h });
+      setCropRect({ x: newX, y: newY, w: newW, h: newH });
       return;
     }
 
@@ -454,6 +582,13 @@ export const CanvasWorkspace: React.FC = () => {
       if (isCroppingRef.current) {
         isCroppingRef.current = false;
         cropStartRef.current = null;
+        cropInitialRectRef.current = null;
+        cropHandleRef.current = 'none';
+
+        const cur = useEditorStore.getState().cropRect;
+        if (cur && (cur.w < 10 || cur.h < 10) && document) {
+          setCropRect({ x: 0, y: 0, w: document.width, h: document.height });
+        }
         return;
       }
 
@@ -491,24 +626,59 @@ export const CanvasWorkspace: React.FC = () => {
   }, [handlePointerUp]);
 
   const handleApplyCrop = () => {
-    if (!document || !cropRect || cropRect.w < 5 || cropRect.h < 5) return;
-    cropDocument(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
-    const croppedW = cropRect.w;
-    const croppedH = cropRect.h;
+    const curCrop = useEditorStore.getState().cropRect;
+    const curDoc = useDocumentStore.getState().document;
+    if (!curDoc || !curCrop || curCrop.w < 5 || curCrop.h < 5) return;
+
+    const targetX = Math.round(curCrop.x);
+    const targetY = Math.round(curCrop.y);
+    const targetW = Math.round(curCrop.w);
+    const targetH = Math.round(curCrop.h);
+
+    cropDocument(targetX, targetY, targetW, targetH);
+
     setCropRect(null);
+    setActiveTool('move');
 
     // Realign viewport to fit new cropped document
     if (containerRef.current) {
       const { clientWidth, clientHeight } = containerRef.current;
-      const fit = calculateFitZoom(croppedW, croppedH, clientWidth, clientHeight);
+      const fit = calculateFitZoom(targetW, targetH, clientWidth, clientHeight);
       setZoom(fit);
       setPan(0, 0);
     }
   };
 
+  const handleResetCrop = () => {
+    if (!document) return;
+    setCropRect({
+      x: 0,
+      y: 0,
+      w: document.width,
+      h: document.height,
+    });
+  };
+
   const handleCancelCrop = () => {
     setCropRect(null);
+    setActiveTool('move');
   };
+
+  // Enter applies crop, Escape cancels crop
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (activeTool !== 'crop') return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleApplyCrop();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancelCrop();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTool, cropRect, document]);
 
   const handleDoubleClick = (e: React.MouseEvent) => {
     if (!document) return;
@@ -516,6 +686,19 @@ export const CanvasWorkspace: React.FC = () => {
     if (!toolEvt) return;
     const docX = Math.round(toolEvt.docPoint.x);
     const docY = Math.round(toolEvt.docPoint.y);
+
+    // Double click inside crop box commits crop
+    if (activeTool === 'crop' && cropRect) {
+      if (
+        docX >= cropRect.x &&
+        docX <= cropRect.x + cropRect.w &&
+        docY >= cropRect.y &&
+        docY <= cropRect.y + cropRect.h
+      ) {
+        handleApplyCrop();
+        return;
+      }
+    }
 
     const hitTextLayer = document.layers
       .slice()
@@ -547,6 +730,14 @@ export const CanvasWorkspace: React.FC = () => {
     if (isSpacePressed || isPanning || activeTool === 'hand') {
       return isPanning ? 'cursor-grabbing' : 'cursor-grab';
     }
+    if (activeTool === 'crop') {
+      if (hoverCropHandle === 'nw' || hoverCropHandle === 'se') return 'cursor-nwse-resize';
+      if (hoverCropHandle === 'ne' || hoverCropHandle === 'sw') return 'cursor-nesw-resize';
+      if (hoverCropHandle === 'n' || hoverCropHandle === 's') return 'cursor-ns-resize';
+      if (hoverCropHandle === 'w' || hoverCropHandle === 'e') return 'cursor-ew-resize';
+      if (hoverCropHandle === 'inside') return 'cursor-move';
+      return 'cursor-crosshair';
+    }
     switch (activeTool) {
       case 'move':
         return 'cursor-move';
@@ -556,7 +747,6 @@ export const CanvasWorkspace: React.FC = () => {
         return 'cursor-crosshair';
       case 'select-rect':
       case 'select-ellipse':
-      case 'crop':
       case 'shape-rect':
       case 'shape-ellipse':
       case 'shape-line':
@@ -726,7 +916,7 @@ export const CanvasWorkspace: React.FC = () => {
           )}
 
           {/* Interactive Crop Overlay */}
-          {cropRect && cropRect.w > 0 && cropRect.h > 0 && (
+          {activeTool === 'crop' && cropRect && cropRect.w > 0 && cropRect.h > 0 && (
             <div className="absolute inset-0 pointer-events-none">
               <svg
                 className="w-full h-full"
@@ -738,6 +928,42 @@ export const CanvasWorkspace: React.FC = () => {
                   fill="rgba(0,0,0,0.55)"
                   fillRule="evenodd"
                 />
+
+                {/* Rule of thirds grid lines */}
+                <line
+                  x1={cropRect.x + cropRect.w / 3}
+                  y1={cropRect.y}
+                  x2={cropRect.x + cropRect.w / 3}
+                  y2={cropRect.y + cropRect.h}
+                  stroke="rgba(255,255,255,0.3)"
+                  strokeWidth={1 / viewport.zoom}
+                />
+                <line
+                  x1={cropRect.x + (cropRect.w * 2) / 3}
+                  y1={cropRect.y}
+                  x2={cropRect.x + (cropRect.w * 2) / 3}
+                  y2={cropRect.y + cropRect.h}
+                  stroke="rgba(255,255,255,0.3)"
+                  strokeWidth={1 / viewport.zoom}
+                />
+                <line
+                  x1={cropRect.x}
+                  y1={cropRect.y + cropRect.h / 3}
+                  x2={cropRect.x + cropRect.w}
+                  y2={cropRect.y + cropRect.h / 3}
+                  stroke="rgba(255,255,255,0.3)"
+                  strokeWidth={1 / viewport.zoom}
+                />
+                <line
+                  x1={cropRect.x}
+                  y1={cropRect.y + (cropRect.h * 2) / 3}
+                  x2={cropRect.x + cropRect.w}
+                  y2={cropRect.y + (cropRect.h * 2) / 3}
+                  stroke="rgba(255,255,255,0.3)"
+                  strokeWidth={1 / viewport.zoom}
+                />
+
+                {/* Crop boundary */}
                 <rect
                   x={cropRect.x}
                   y={cropRect.y}
@@ -745,9 +971,33 @@ export const CanvasWorkspace: React.FC = () => {
                   height={cropRect.h}
                   fill="transparent"
                   stroke="#ffffff"
-                  strokeWidth={2 / viewport.zoom}
-                  strokeDasharray="4 4"
+                  strokeWidth={1.5 / viewport.zoom}
                 />
+
+                {/* 8 Interactive Resize Handles */}
+                {[
+                  // NW, NE, SE, SW corners
+                  [cropRect.x, cropRect.y],
+                  [cropRect.x + cropRect.w, cropRect.y],
+                  [cropRect.x + cropRect.w, cropRect.y + cropRect.h],
+                  [cropRect.x, cropRect.y + cropRect.h],
+                  // N, E, S, W edges
+                  [cropRect.x + cropRect.w / 2, cropRect.y],
+                  [cropRect.x + cropRect.w, cropRect.y + cropRect.h / 2],
+                  [cropRect.x + cropRect.w / 2, cropRect.y + cropRect.h],
+                  [cropRect.x, cropRect.y + cropRect.h / 2],
+                ].map(([hx, hy], i) => (
+                  <rect
+                    key={i}
+                    x={hx - 4.5 / viewport.zoom}
+                    y={hy - 4.5 / viewport.zoom}
+                    width={9 / viewport.zoom}
+                    height={9 / viewport.zoom}
+                    fill="#ffffff"
+                    stroke="#1e1e24"
+                    strokeWidth={1 / viewport.zoom}
+                  />
+                ))}
               </svg>
             </div>
           )}
@@ -755,16 +1005,40 @@ export const CanvasWorkspace: React.FC = () => {
       </div>
 
       {/* Floating Crop Confirmation Toolbar */}
-      {cropRect && cropRect.w > 10 && cropRect.h > 10 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#1e1e24] border border-[#3e3e4a] rounded-lg shadow-xl px-3 py-2 flex items-center gap-3">
+      {activeTool === 'crop' && cropRect && cropRect.w >= 10 && cropRect.h >= 10 && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#1e1e24] border border-[#3e3e4a] rounded-lg shadow-xl px-3 py-2 flex items-center gap-3 select-none"
+        >
           <span className="text-xs text-editor-muted">
             Crop: {Math.round(cropRect.w)} × {Math.round(cropRect.h)} px
           </span>
-          <Button variant="primary" size="sm" onClick={handleApplyCrop}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleApplyCrop}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium gap-1"
+          >
             <Check size={14} />
             <span>Apply Crop</span>
           </Button>
-          <Button variant="secondary" size="sm" onClick={handleCancelCrop}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleResetCrop}
+            className="gap-1"
+          >
+            <RotateCcw size={13} />
+            <span>Reset</span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={handleCancelCrop}
+            className="gap-1"
+          >
             <CloseIcon size={14} />
             <span>Cancel</span>
           </Button>
