@@ -14,6 +14,7 @@ export function useKeyboardShortcuts() {
     duplicateLayer,
     mergeDown,
     setSelection,
+    clearSelectionContents,
     setSaveStatus,
   } = useDocumentStore();
 
@@ -25,6 +26,7 @@ export function useKeyboardShortcuts() {
     swapColors,
     resetDefaultColors,
     setZoom,
+    resetViewport,
     viewport,
   } = useEditorStore();
 
@@ -103,6 +105,11 @@ export function useKeyboardShortcuts() {
             return;
           case 'delete':
           case 'backspace':
+            if (document?.selection?.active) {
+              e.preventDefault();
+              clearSelectionContents();
+              return;
+            }
             if (document && document.activeLayerId && document.layers.length > 1) {
               e.preventDefault();
               removeLayer(document.activeLayerId);
@@ -113,6 +120,19 @@ export function useKeyboardShortcuts() {
 
       // Ctrl shortcuts
       if (isCtrl) {
+        // Fit to Screen: Ctrl+0
+        if (e.key === '0') {
+          e.preventDefault();
+          if (document) {
+            const fit = Math.min(
+              (window.innerWidth - 360) / document.width,
+              (window.innerHeight - 120) / document.height
+            );
+            setZoom(Math.max(0.05, Math.min(5, Number(fit.toFixed(2)))));
+            resetViewport();
+          }
+          return;
+        }
         // Undo: Ctrl+Z
         if (e.key.toLowerCase() === 'z' && !e.shiftKey) {
           e.preventDefault();

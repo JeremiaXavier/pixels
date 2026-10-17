@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyColorAdjustments, applyLevels } from '@/filters/colorAdjustments';
-import { applyGaussianBlur, applySharpen } from '@/filters/convolutionFilters';
+import { applyGaussianBlur, applyBoxBlur, applySharpen } from '@/filters/convolutionFilters';
 import { applyPixelate, applyNoise } from '@/filters/effectFilters';
 import { executeFilter } from '@/filters/FilterRegistry';
 
@@ -60,6 +60,14 @@ describe('Filters & Adjustments Math', () => {
   it('applies gaussian blur without NaN or infinite values', () => {
     const img = createTestImageData(10, 10, 120, 140, 160);
     applyGaussianBlur(img, 3);
+    expect(Number.isFinite(img.data[0])).toBe(true);
+    expect(img.data[0]).toBeGreaterThanOrEqual(0);
+    expect(img.data[0]).toBeLessThanOrEqual(255);
+  });
+
+  it('applies box blur without NaN or infinite values', () => {
+    const img = createTestImageData(10, 10, 120, 140, 160);
+    applyBoxBlur(img, 2);
     expect(Number.isFinite(img.data[0])).toBe(true);
     expect(img.data[0]).toBeGreaterThanOrEqual(0);
     expect(img.data[0]).toBeLessThanOrEqual(255);

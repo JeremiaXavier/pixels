@@ -22,6 +22,7 @@ export const MenuBar: React.FC = () => {
     mergeDown,
     flattenImage,
     setSelection,
+    clearSelectionContents,
     rotateDocument,
     flipDocument,
     setSaveStatus,
@@ -67,6 +68,29 @@ export const MenuBar: React.FC = () => {
       a.click();
       URL.revokeObjectURL(url);
       await indexedDBStorage.autosaveProject(document);
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('Failed to save project:', err);
+      setSaveStatus('unsaved');
+    }
+  };
+
+  // Save project as...
+  const handleSaveProjectAs = async () => {
+    if (!document) return;
+    const newName = prompt('Enter project filename:', document.name.replace(/\.[^/.]+$/, ''));
+    if (!newName) return;
+    setSaveStatus('saving');
+    try {
+      const updatedDoc = { ...document, name: newName };
+      const blob = await ProjectSerializer.exportProjectBlob(updatedDoc);
+      const url = URL.createObjectURL(blob);
+      const a = window.document.createElement('a');
+      a.href = url;
+      a.download = `${newName}.pixels`;
+      a.click();
+      URL.revokeObjectURL(url);
+      await indexedDBStorage.autosaveProject(updatedDoc);
       setSaveStatus('saved');
     } catch (err) {
       console.error('Failed to save project:', err);
@@ -141,6 +165,11 @@ export const MenuBar: React.FC = () => {
           action: handleSaveProject,
         },
         {
+          label: 'Save Project As...',
+          disabled: !document,
+          action: handleSaveProjectAs,
+        },
+        {
           label: 'Export Image...',
           shortcut: 'Ctrl+Shift+E',
           disabled: !document,
@@ -182,6 +211,12 @@ export const MenuBar: React.FC = () => {
           shortcut: 'Ctrl+D',
           disabled: !document || !document.selection?.active,
           action: handleDeselect,
+        },
+        {
+          label: 'Clear Selection Contents',
+          shortcut: 'Delete',
+          disabled: !document || !document.selection?.active,
+          action: clearSelectionContents,
         },
         { type: 'separator' },
         {
@@ -294,6 +329,11 @@ export const MenuBar: React.FC = () => {
           disabled: !document,
           action: handleInvertSelection,
         },
+        {
+          label: 'Clear Selection Contents',
+          disabled: !document || !document.selection?.active,
+          action: clearSelectionContents,
+        },
       ],
     },
     {
@@ -320,6 +360,11 @@ export const MenuBar: React.FC = () => {
           label: 'Gaussian Blur...',
           disabled: !document,
           action: () => openFilterDialog('gaussianBlur'),
+        },
+        {
+          label: 'Box Blur...',
+          disabled: !document,
+          action: () => openFilterDialog('boxBlur'),
         },
         {
           label: 'Sharpen...',
@@ -358,6 +403,20 @@ export const MenuBar: React.FC = () => {
           shortcut: 'Ctrl+-',
           disabled: !document,
           action: () => setZoom(viewport.zoom / 1.25),
+        },
+        {
+          label: 'Fit to Screen',
+          shortcut: 'Ctrl+0',
+          disabled: !document,
+          action: () => {
+            if (!document) return;
+            const fit = Math.min(
+              (window.innerWidth - 360) / document.width,
+              (window.innerHeight - 120) / document.height
+            );
+            setZoom(Math.max(0.05, Math.min(5, Number(fit.toFixed(2)))));
+            resetViewport();
+          },
         },
         {
           label: '100% (Actual Size)',

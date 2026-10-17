@@ -1,5 +1,5 @@
 import { applyColorAdjustments, applyLevels, applyColorBalance, ColorAdjustmentOptions, LevelsOptions, ColorBalanceOptions } from './colorAdjustments';
-import { applyGaussianBlur, applySharpen, applyEdgeDetection } from './convolutionFilters';
+import { applyGaussianBlur, applyBoxBlur, applySharpen, applyEdgeDetection } from './convolutionFilters';
 import { applyPixelate, applyNoise } from './effectFilters';
 import { SelectionRegion } from '@/types';
 
@@ -8,6 +8,7 @@ export type FilterType =
   | 'levels'
   | 'colorBalance'
   | 'gaussianBlur'
+  | 'boxBlur'
   | 'sharpen'
   | 'edgeDetection'
   | 'pixelate'
@@ -111,6 +112,9 @@ function applyDirect(imageData: ImageData, params: FilterParams): void {
       break;
     case 'gaussianBlur':
       applyGaussianBlur(imageData, params.blurRadius ?? 4);
+      break;
+    case 'boxBlur':
+      applyBoxBlur(imageData, params.blurRadius ?? 4);
       break;
     case 'sharpen':
       applySharpen(imageData, params.sharpenIntensity ?? 1);

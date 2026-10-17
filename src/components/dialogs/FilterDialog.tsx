@@ -40,6 +40,7 @@ export const FilterDialog: React.FC = () => {
 
   const titles: Record<string, string> = {
     gaussianBlur: 'Gaussian Blur',
+    boxBlur: 'Box Blur',
     sharpen: 'Sharpen',
     pixelate: 'Pixelate',
     noise: 'Add Noise',
@@ -92,6 +93,18 @@ export const FilterDialog: React.FC = () => {
         {activeFilterType === 'gaussianBlur' && (
           <Slider
             label="Blur Radius"
+            min={1}
+            max={50}
+            unit=" px"
+            value={blurRadius}
+            onChange={setBlurRadius}
+          />
+        )}
+
+        {/* Box Blur */}
+        {activeFilterType === 'boxBlur' && (
+          <Slider
+            label="Box Blur Radius"
             min={1}
             max={50}
             unit=" px"

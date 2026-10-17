@@ -28,6 +28,7 @@ interface DocumentState {
 
   // Selection
   setSelection: (selection: SelectionRegion | null) => void;
+  clearSelectionContents: () => void;
 
   // Image & Canvas Transformations
   resizeCanvas: (width: number, height: number, anchor?: 'center' | 'top-left' | 'top' | 'top-right' | 'left' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right') => void;
@@ -286,6 +287,93 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         ...doc,
         selection,
       },
+    });
+  },
+
+  clearSelectionContents: () => {
+    const doc = get().document;
+    if (!doc || !doc.selection || !doc.selection.active || !doc.activeLayerId) return;
+
+    const layer = doc.layers.find((l) => l.id === doc.activeLayerId) as RasterLayer;
+    if (!layer || layer.type !== 'raster' || !layer.canvas) return;
+
+    const ctx = layer.canvas.getContext('2d');
+    if (!ctx) return;
+
+    const beforeDataUrl = layer.canvas.toDataURL();
+    const sel = doc.selection;
+
+    ctx.save();
+    const localX = sel.x - layer.x;
+    const localY = sel.y - layer.y;
+
+    if (sel.type === 'rect') {
+      ctx.clearRect(localX, localY, sel.width, sel.height);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(
+        localX + sel.width / 2,
+        localY + sel.height / 2,
+        sel.width / 2,
+        sel.height / 2,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.clip();
+      ctx.clearRect(localX, localY, sel.width, sel.height);
+    }
+    ctx.restore();
+
+    const afterDataUrl = layer.canvas.toDataURL();
+    const layerId = layer.id;
+
+    historyManager.push({
+      id: `clear_sel_${Date.now()}`,
+      type: 'erase',
+      description: 'Clear Selection Contents',
+      timestamp: Date.now(),
+      undo: () => {
+        const cDoc = get().document;
+        if (!cDoc) return;
+        const target = cDoc.layers.find((l) => l.id === layerId) as RasterLayer;
+        if (target && target.canvas) {
+          const tCtx = target.canvas.getContext('2d');
+          const img = new Image();
+          img.src = beforeDataUrl;
+          img.onload = () => {
+            tCtx?.clearRect(0, 0, target.width, target.height);
+            tCtx?.drawImage(img, 0, 0);
+            target.dataUrl = beforeDataUrl;
+            set({ document: { ...cDoc, isDirty: true }, saveStatus: 'unsaved' });
+          };
+        }
+      },
+      redo: () => {
+        const cDoc = get().document;
+        if (!cDoc) return;
+        const target = cDoc.layers.find((l) => l.id === layerId) as RasterLayer;
+        if (target && target.canvas) {
+          const tCtx = target.canvas.getContext('2d');
+          const img = new Image();
+          img.src = afterDataUrl;
+          img.onload = () => {
+            tCtx?.clearRect(0, 0, target.width, target.height);
+            tCtx?.drawImage(img, 0, 0);
+            target.dataUrl = afterDataUrl;
+            set({ document: { ...cDoc, isDirty: true }, saveStatus: 'unsaved' });
+          };
+        }
+      },
+    });
+
+    layer.dataUrl = afterDataUrl;
+    set({
+      document: {
+        ...doc,
+        isDirty: true,
+      },
+      saveStatus: 'unsaved',
     });
   },
 

@@ -80,6 +80,61 @@ export function applyGaussianBlur(imageData: ImageData, radius: number): void {
 }
 
 /**
+ * Fast separable Box Blur
+ */
+export function applyBoxBlur(imageData: ImageData, radius: number): void {
+  if (radius <= 0) return;
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = imageData.data;
+  const r = Math.round(radius);
+  const size = r * 2 + 1;
+
+  const temp = new Float32Array(width * height * 4);
+
+  // Horizontal pass
+  for (let y = 0; y < height; y++) {
+    const rowOffset = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      let tr = 0, tg = 0, tb = 0, ta = 0;
+      for (let k = -r; k <= r; k++) {
+        const px = clamp(x + k, 0, width - 1);
+        const idx = rowOffset + px * 4;
+        tr += src[idx];
+        tg += src[idx + 1];
+        tb += src[idx + 2];
+        ta += src[idx + 3];
+      }
+      const outIdx = rowOffset + x * 4;
+      temp[outIdx] = tr / size;
+      temp[outIdx + 1] = tg / size;
+      temp[outIdx + 2] = tb / size;
+      temp[outIdx + 3] = ta / size;
+    }
+  }
+
+  // Vertical pass
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      let tr = 0, tg = 0, tb = 0, ta = 0;
+      for (let k = -r; k <= r; k++) {
+        const py = clamp(y + k, 0, height - 1);
+        const idx = (py * width + x) * 4;
+        tr += temp[idx];
+        tg += temp[idx + 1];
+        tb += temp[idx + 2];
+        ta += temp[idx + 3];
+      }
+      const outIdx = (y * width + x) * 4;
+      src[outIdx] = Math.round(tr / size);
+      src[outIdx + 1] = Math.round(tg / size);
+      src[outIdx + 2] = Math.round(tb / size);
+      src[outIdx + 3] = Math.round(ta / size);
+    }
+  }
+}
+
+/**
  * 3x3 Sharpen Kernel
  */
 export function applySharpen(imageData: ImageData, intensity = 1.0): void {

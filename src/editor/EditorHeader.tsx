@@ -117,6 +117,22 @@ export const EditorHeader: React.FC = () => {
             >
               <ZoomIn size={13} />
             </button>
+            <button
+              onClick={() => {
+                if (!document) return;
+                const fit = Math.min(
+                  (window.innerWidth - 360) / document.width,
+                  (window.innerHeight - 120) / document.height
+                );
+                setZoom(Math.max(0.05, Math.min(5, Number(fit.toFixed(2)))));
+                useEditorStore.getState().resetViewport();
+              }}
+              className="p-0.5 text-editor-muted hover:text-white transition-colors ml-0.5 border-l border-[#3a3a46] pl-1"
+              title="Fit to Screen (Ctrl+0)"
+              aria-label="Fit to Screen"
+            >
+              <Maximize2 size={12} />
+            </button>
           </div>
         </div>
       )}

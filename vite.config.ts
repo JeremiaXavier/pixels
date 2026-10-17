@@ -20,4 +20,16 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          lucide: ['lucide-react'],
+          archive: ['jszip', 'idb'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1000,
+  },
 });

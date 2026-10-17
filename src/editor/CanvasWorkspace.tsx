@@ -310,6 +310,7 @@ export const CanvasWorkspace: React.FC = () => {
   }
 
   const selection = document.selection;
+  const activeLayer = document.layers.find((l) => l.id === document.activeLayerId);
 
   return (
     <main
@@ -375,6 +376,42 @@ export const CanvasWorkspace: React.FC = () => {
                   className="marching-ants"
                 />
               )}
+            </svg>
+          )}
+
+          {/* Active Layer Transform Box (Move Tool) */}
+          {activeTool === 'move' && activeLayer && !activeLayer.locked && (
+            <svg
+              className="absolute inset-0 pointer-events-none w-full h-full"
+              viewBox={`0 0 ${document.width} ${document.height}`}
+            >
+              <rect
+                x={activeLayer.x}
+                y={activeLayer.y}
+                width={activeLayer.width}
+                height={activeLayer.height}
+                fill="none"
+                stroke="#3b82f6"
+                strokeWidth={1.5 / viewport.zoom}
+                strokeDasharray="4 2"
+              />
+              {[
+                [activeLayer.x, activeLayer.y],
+                [activeLayer.x + activeLayer.width, activeLayer.y],
+                [activeLayer.x, activeLayer.y + activeLayer.height],
+                [activeLayer.x + activeLayer.width, activeLayer.y + activeLayer.height],
+              ].map(([hx, hy], i) => (
+                <rect
+                  key={i}
+                  x={hx - 3 / viewport.zoom}
+                  y={hy - 3 / viewport.zoom}
+                  width={6 / viewport.zoom}
+                  height={6 / viewport.zoom}
+                  fill="#ffffff"
+                  stroke="#3b82f6"
+                  strokeWidth={1 / viewport.zoom}
+                />
+              ))}
             </svg>
           )}
 

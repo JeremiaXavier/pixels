@@ -33,7 +33,9 @@ export const KeyboardShortcutsDialog: React.FC = () => {
       { key: 'Ctrl + Shift + N', desc: 'New Layer' },
       { key: 'Ctrl + J', desc: 'Duplicate Layer' },
       { key: 'Ctrl + E', desc: 'Merge Down' },
+      { key: 'Delete', desc: 'Clear Selection Contents / Delete Layer' },
       { key: 'Ctrl + + / -', desc: 'Zoom In / Out' },
+      { key: 'Ctrl + 0', desc: 'Fit to Screen' },
       { key: 'Ctrl + 1', desc: '100% Actual Size' },
     ]},
   ];

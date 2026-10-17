@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { DocumentManager } from '@/document/Document';
 import { LayerFactory } from '@/document/Layer';
 import { SelectionManager } from '@/document/Selection';
+import { useDocumentStore } from '@/store/documentStore';
 
 describe('DocumentManager', () => {
   it('initializes a document with default background layer and dimensions', () => {
@@ -105,5 +106,22 @@ describe('SelectionManager', () => {
 
     expect(SelectionManager.isPointInside({ x: 150, y: 150 }, sel)).toBe(true);
     expect(SelectionManager.isPointInside({ x: 50, y: 50 }, sel)).toBe(false);
+  });
+
+  it('clears selection contents on raster layer using store action', () => {
+    useDocumentStore.getState().createNewDocument('Test Clear', 200, 200);
+    useDocumentStore.getState().setSelection({
+      active: true,
+      x: 10,
+      y: 10,
+      width: 50,
+      height: 50,
+      type: 'rect',
+    });
+
+    // Invoke clear
+    useDocumentStore.getState().clearSelectionContents();
+    const doc = useDocumentStore.getState().document;
+    expect(doc?.isDirty).toBe(true);
   });
 });
