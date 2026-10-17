@@ -103,12 +103,16 @@ export class Compositor {
     const lines = layer.text.split('\n');
     const lineHeight = layer.fontSize * 1.25;
 
+    let maxLineWidth = 0;
     lines.forEach((line, index) => {
       const lineY = layer.y + index * lineHeight;
       ctx.fillText(line, textX, lineY);
+      const textMetrics = ctx.measureText(line);
+      if (textMetrics.width > maxLineWidth) {
+        maxLineWidth = textMetrics.width;
+      }
 
       if (layer.underline) {
-        const textMetrics = ctx.measureText(line);
         let underlineStartX = textX;
         if (layer.align === 'center') underlineStartX -= textMetrics.width / 2;
         if (layer.align === 'right') underlineStartX -= textMetrics.width;
@@ -121,12 +125,21 @@ export class Compositor {
         ctx.stroke();
       }
     });
+
+    const calculatedWidth = Math.max(50, Math.ceil(maxLineWidth));
+    const calculatedHeight = Math.max(20, Math.ceil(lines.length * lineHeight));
+    if (Math.abs(layer.width - calculatedWidth) > 5 || Math.abs(layer.height - calculatedHeight) > 5) {
+      layer.width = calculatedWidth;
+      layer.height = calculatedHeight;
+    }
   }
 
   private static renderShapeLayer(ctx: CanvasRenderingContext2D, layer: ShapeLayer): void {
     ctx.fillStyle = layer.fill || 'transparent';
     ctx.strokeStyle = layer.stroke || 'transparent';
     ctx.lineWidth = layer.strokeWidth || 0;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     const hasFill = layer.fill && layer.fill !== 'transparent';
     const hasStroke = layer.stroke && layer.stroke !== 'transparent' && layer.strokeWidth > 0;
@@ -162,7 +175,13 @@ export class Compositor {
           ctx.moveTo(layer.x, layer.y);
           ctx.lineTo(layer.x + layer.width, layer.y + layer.height);
         }
-        if (hasStroke) ctx.stroke();
+        if (hasStroke) {
+          ctx.stroke();
+        } else if (hasFill) {
+          ctx.strokeStyle = layer.fill;
+          ctx.lineWidth = Math.max(1, layer.strokeWidth || 2);
+          ctx.stroke();
+        }
         break;
       }
     }
@@ -181,7 +200,7 @@ export class Compositor {
 
     const pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
     if (pixel[3] === 0) {
-      return '#000000';
+      return null;
     }
     const toHex = (n: number) => n.toString(16).padStart(2, '0');
     return `#${toHex(pixel[0])}${toHex(pixel[1])}${toHex(pixel[2])}`;

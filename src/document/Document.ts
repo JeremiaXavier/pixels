@@ -232,8 +232,12 @@ export class DocumentManager {
     cropWidth: number,
     cropHeight: number
   ): PixelsDocument {
-    const w = Math.max(1, Math.round(cropWidth));
-    const h = Math.max(1, Math.round(cropHeight));
+    const x1 = Math.round(cropX);
+    const y1 = Math.round(cropY);
+    const safeX = Math.max(0, Math.min(doc.width - 1, Math.min(x1, x1 + Math.round(cropWidth))));
+    const safeY = Math.max(0, Math.min(doc.height - 1, Math.min(y1, y1 + Math.round(cropHeight))));
+    const w = Math.max(1, Math.min(doc.width - safeX, Math.round(Math.abs(cropWidth))));
+    const h = Math.max(1, Math.min(doc.height - safeY, Math.round(Math.abs(cropHeight))));
 
     const updatedLayers = doc.layers.map((layer) => {
       if (layer.type === 'raster') {
@@ -242,8 +246,14 @@ export class DocumentManager {
         newCanvas.width = w;
         newCanvas.height = h;
         const ctx = newCanvas.getContext('2d');
-        if (ctx && rLayer.canvas) {
-          ctx.drawImage(rLayer.canvas, rLayer.x - cropX, rLayer.y - cropY);
+        if (ctx) {
+          if (rLayer.canvas) {
+            ctx.drawImage(rLayer.canvas, rLayer.x - safeX, rLayer.y - safeY);
+          } else if (rLayer.dataUrl) {
+            const img = new Image();
+            img.src = rLayer.dataUrl;
+            ctx.drawImage(img, rLayer.x - safeX, rLayer.y - safeY);
+          }
         }
         return {
           ...rLayer,
@@ -257,8 +267,8 @@ export class DocumentManager {
       } else {
         return {
           ...layer,
-          x: layer.x - cropX,
-          y: layer.y - cropY,
+          x: layer.x - safeX,
+          y: layer.y - safeY,
         };
       }
     });

@@ -93,4 +93,59 @@ test.describe('Pixels Image Editor E2E', () => {
     await expect(page.getByText('Text Properties')).toBeVisible();
     await expect(page.getByText('Transform')).toBeVisible();
   });
+
+  test('repaired shape tools, crop tool, and eyedropper workflow', async ({ page }) => {
+    await page.goto('/');
+    await page.getByText('Square Graphic').click();
+    await expect(page.getByText('Social Post')).toBeVisible();
+
+    const canvas = page.locator('main canvas');
+    await expect(canvas).toBeVisible();
+    const box = await canvas.boundingBox();
+    expect(box).toBeTruthy();
+
+    if (box) {
+      // 1. Draw a rectangle shape
+      await page.keyboard.press('u');
+      await page.mouse.move(box.x + 100, box.y + 100);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 200, box.y + 200);
+      await page.mouse.up();
+      await expect(page.getByText('Rectangle', { exact: true })).toBeVisible();
+
+      // 2. Draw an ellipse shape
+      await page.keyboard.press('Shift+U');
+      await page.mouse.move(box.x + 250, box.y + 100);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 350, box.y + 200);
+      await page.mouse.up();
+      await expect(page.getByText('Ellipse', { exact: true })).toBeVisible();
+
+      // 3. Draw a line shape
+      await page.keyboard.press('l');
+      await page.mouse.move(box.x + 100, box.y + 300);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 300, box.y + 350);
+      await page.mouse.up();
+      await expect(page.getByText('Line', { exact: true })).toBeVisible();
+
+      // 4. Test Crop Tool
+      await page.keyboard.press('c');
+      await page.mouse.move(box.x + 50, box.y + 50);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 300, box.y + 300);
+      await page.mouse.up();
+      await expect(page.getByText('Apply Crop')).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+      // Cancel crop
+      await page.getByRole('button', { name: 'Cancel' }).click();
+      await expect(page.getByText('Apply Crop')).not.toBeVisible();
+
+      // 5. Test Eyedropper Tool
+      await page.keyboard.press('i');
+      await page.mouse.click(box.x + 150, box.y + 150);
+      // Status bar or toolbar updates without error
+      await expect(page.getByText(/Eyedropper/i).first()).toBeVisible();
+    }
+  });
 });

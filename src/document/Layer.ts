@@ -137,8 +137,9 @@ export class LayerFactory {
    * Deep clone a layer (including its raster canvas buffer)
    */
   public static duplicateLayer(layer: Layer): Layer {
+    const { canvas: _, ...layerData } = layer as any;
     const cloned: Layer = {
-      ...JSON.parse(JSON.stringify(layer)),
+      ...JSON.parse(JSON.stringify(layerData)),
       id: this.generateId(),
       name: `${layer.name} copy`,
     };

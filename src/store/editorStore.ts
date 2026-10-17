@@ -124,7 +124,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isShortcutsOpen: false,
   isAboutOpen: false,
 
-  setActiveTool: (tool) => set({ activeTool: tool }),
+  setActiveTool: (tool) => {
+    set((state) => {
+      let shapeType = state.toolOptions.shape.shapeType;
+      if (tool === 'shape-rect') shapeType = 'rectangle';
+      if (tool === 'shape-ellipse') shapeType = 'ellipse';
+      if (tool === 'shape-line') shapeType = 'line';
+      return {
+        activeTool: tool,
+        toolOptions: {
+          ...state.toolOptions,
+          shape: { ...state.toolOptions.shape, shapeType },
+        },
+      };
+    });
+  },
 
   updateToolOptions: (tool, options) => {
     set((state) => ({
@@ -160,7 +174,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   resetDefaultColors: () => {
-    set({ foregroundColor: '#000000', backgroundColor: '#ffffff' });
+    get().setForegroundColor('#000000');
+    set({ backgroundColor: '#ffffff' });
   },
 
   setZoom: (zoom) => {

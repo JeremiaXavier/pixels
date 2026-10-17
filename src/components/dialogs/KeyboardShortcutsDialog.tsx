@@ -15,7 +15,7 @@ export const KeyboardShortcutsDialog: React.FC = () => {
       { key: 'E', desc: 'Eraser Tool' },
       { key: 'C', desc: 'Crop Tool' },
       { key: 'T', desc: 'Text Tool' },
-      { key: 'U', desc: 'Shape Tool' },
+      { key: 'U / Shift+U / L', desc: 'Rectangle / Ellipse / Line Shapes' },
       { key: 'I', desc: 'Eyedropper' },
       { key: 'Z', desc: 'Zoom Tool (Hold Alt to Zoom Out)' },
       { key: 'H / Space + Drag', desc: 'Hand (Pan Canvas)' },

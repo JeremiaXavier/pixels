@@ -18,7 +18,7 @@ export interface ToolPointerEvent {
 export class ToolManager {
   private isDrawing = false;
   private lastDocPoint: { x: number; y: number } | null = null;
-  private strokeStartCanvasSnapshot: string | null = null;
+  private strokeStartCanvasSnapshot: HTMLCanvasElement | null = null;
   private activeLayerIdAtStart: string | null = null;
 
   // Selection tool state
@@ -27,29 +27,64 @@ export class ToolManager {
   // Hand tool pan state
   private lastPanPoint: { x: number; y: number } | null = null;
 
+  public cancelDrawing(): void {
+    this.isDrawing = false;
+    this.lastDocPoint = null;
+    this.strokeStartCanvasSnapshot = null;
+    this.activeLayerIdAtStart = null;
+    this.selectionStartPoint = null;
+    this.lastPanPoint = null;
+  }
+
   public handlePointerDown(e: ToolPointerEvent): void {
     const editor = useEditorStore.getState();
     const docState = useDocumentStore.getState();
     const doc = docState.document;
     if (!doc) return;
 
-    this.isDrawing = true;
     this.lastDocPoint = { ...e.docPoint };
 
     switch (editor.activeTool) {
       case 'brush':
       case 'pencil':
       case 'eraser': {
-        const activeLayer = doc.layers.find((l) => l.id === doc.activeLayerId);
+        let activeLayer = doc.layers.find((l) => l.id === doc.activeLayerId);
+        // If active layer is not a visible unlocked raster layer, find a suitable raster layer
         if (!activeLayer || activeLayer.type !== 'raster' || !activeLayer.visible || activeLayer.locked) {
-          // If no active editable raster layer, or locked, ignore
-          return;
+          const availableRaster = doc.layers
+            .slice()
+            .reverse()
+            .find((l) => l.type === 'raster' && l.visible && !l.locked);
+          if (availableRaster) {
+            docState.setActiveLayer(availableRaster.id);
+            activeLayer = availableRaster;
+          } else {
+            // If no raster layer exists, create a new one to draw on
+            const newLayer = LayerFactory.createRasterLayer(
+              `Layer ${doc.layers.length + 1}`,
+              doc.width,
+              doc.height
+            );
+            docState.addLayer(newLayer);
+            activeLayer = newLayer;
+          }
         }
-        const rLayer = activeLayer as RasterLayer;
-        if (!rLayer.canvas) return;
 
-        this.strokeStartCanvasSnapshot = rLayer.canvas.toDataURL();
+        const rLayer = activeLayer as RasterLayer;
+        if (!rLayer || !rLayer.canvas) return;
+
+        this.isDrawing = true;
         this.activeLayerIdAtStart = rLayer.id;
+
+        // Synchronous snapshot of the canvas buffer for instant undo
+        const snapshot = document.createElement('canvas');
+        snapshot.width = rLayer.canvas.width;
+        snapshot.height = rLayer.canvas.height;
+        const sCtx = snapshot.getContext('2d');
+        if (sCtx) {
+          sCtx.drawImage(rLayer.canvas, 0, 0);
+        }
+        this.strokeStartCanvasSnapshot = snapshot;
 
         this.drawStrokeDab(e.docPoint, editor.activeTool);
         break;
@@ -57,6 +92,7 @@ export class ToolManager {
 
       case 'select-rect':
       case 'select-ellipse': {
+        this.isDrawing = true;
         this.selectionStartPoint = { ...e.docPoint };
         break;
       }
@@ -70,6 +106,7 @@ export class ToolManager {
       }
 
       case 'hand': {
+        this.isDrawing = true;
         this.lastPanPoint = { ...e.screenPoint };
         break;
       }
@@ -91,6 +128,13 @@ export class ToolManager {
 
     editor.setCursorCoordinates(e.docPoint.x, e.docPoint.y);
 
+    if (editor.activeTool === 'eyedropper' && e.button === 0) {
+      const sampledColor = Compositor.sampleColor(doc, e.docPoint.x, e.docPoint.y);
+      if (sampledColor) {
+        editor.setForegroundColor(sampledColor);
+      }
+    }
+
     if (!this.isDrawing) return;
 
     switch (editor.activeTool) {
@@ -106,22 +150,28 @@ export class ToolManager {
       case 'select-rect':
       case 'select-ellipse': {
         if (!this.selectionStartPoint) break;
-        const width = e.docPoint.x - this.selectionStartPoint.x;
-        const height = e.docPoint.y - this.selectionStartPoint.y;
+        const sx = this.selectionStartPoint.x;
+        const sy = this.selectionStartPoint.y;
+        const cx = e.docPoint.x;
+        const cy = e.docPoint.y;
+
+        const clampedX = Math.max(0, Math.min(doc.width, cx));
+        const clampedY = Math.max(0, Math.min(doc.height, cy));
+
+        const normX = Math.round(Math.min(sx, clampedX));
+        const normY = Math.round(Math.min(sy, clampedY));
+        const normW = Math.round(Math.abs(clampedX - sx));
+        const normH = Math.round(Math.abs(clampedY - sy));
         const type = editor.activeTool === 'select-ellipse' ? 'ellipse' : 'rect';
 
-        const updatedRegion = SelectionManager.combine(
-          null,
-          {
-            x: this.selectionStartPoint.x,
-            y: this.selectionStartPoint.y,
-            width,
-            height,
-            type,
-          },
-          'replace'
-        );
-        docState.setSelection(updatedRegion);
+        docState.setSelection({
+          active: true,
+          x: normX,
+          y: normY,
+          width: normW,
+          height: normH,
+          type,
+        });
         break;
       }
 
@@ -152,8 +202,15 @@ export class ToolManager {
           const layerId = this.activeLayerIdAtStart;
           const targetLayer = doc.layers.find((l) => l.id === layerId) as RasterLayer;
           if (targetLayer && targetLayer.canvas) {
-            const beforeSnapshot = this.strokeStartCanvasSnapshot;
-            const afterSnapshot = targetLayer.canvas.toDataURL();
+            const beforeCanvas = this.strokeStartCanvasSnapshot;
+            const afterCanvas = document.createElement('canvas');
+            afterCanvas.width = targetLayer.canvas.width;
+            afterCanvas.height = targetLayer.canvas.height;
+            const aCtx = afterCanvas.getContext('2d');
+            if (aCtx) {
+              aCtx.drawImage(targetLayer.canvas, 0, 0);
+            }
+
             const actionName =
               editor.activeTool === 'eraser'
                 ? 'Eraser'
@@ -172,13 +229,9 @@ export class ToolManager {
                 const lyr = curDoc.layers.find((l) => l.id === layerId) as RasterLayer;
                 if (lyr && lyr.canvas) {
                   const ctx = lyr.canvas.getContext('2d');
-                  const img = new Image();
-                  img.src = beforeSnapshot;
-                  img.onload = () => {
-                    ctx?.clearRect(0, 0, lyr.width, lyr.height);
-                    ctx?.drawImage(img, 0, 0);
-                    docState.commitCanvasChange(layerId, 'Undo ' + actionName);
-                  };
+                  ctx?.clearRect(0, 0, lyr.width, lyr.height);
+                  ctx?.drawImage(beforeCanvas, 0, 0);
+                  useDocumentStore.getState().commitCanvasChange(layerId, 'Undo ' + actionName);
                 }
               },
               redo: () => {
@@ -187,13 +240,9 @@ export class ToolManager {
                 const lyr = curDoc.layers.find((l) => l.id === layerId) as RasterLayer;
                 if (lyr && lyr.canvas) {
                   const ctx = lyr.canvas.getContext('2d');
-                  const img = new Image();
-                  img.src = afterSnapshot;
-                  img.onload = () => {
-                    ctx?.clearRect(0, 0, lyr.width, lyr.height);
-                    ctx?.drawImage(img, 0, 0);
-                    docState.commitCanvasChange(layerId, 'Redo ' + actionName);
-                  };
+                  ctx?.clearRect(0, 0, lyr.width, lyr.height);
+                  ctx?.drawImage(afterCanvas, 0, 0);
+                  useDocumentStore.getState().commitCanvasChange(layerId, 'Redo ' + actionName);
                 }
               },
             });
@@ -206,6 +255,19 @@ export class ToolManager {
 
       case 'select-rect':
       case 'select-ellipse': {
+        if (this.selectionStartPoint && doc) {
+          const sx = this.selectionStartPoint.x;
+          const sy = this.selectionStartPoint.y;
+          const cx = e.docPoint.x;
+          const cy = e.docPoint.y;
+          const normW = Math.abs(cx - sx);
+          const normH = Math.abs(cy - sy);
+
+          if (normW < 3 && normH < 3) {
+            // Click without drag deselects
+            docState.setSelection(null);
+          }
+        }
         this.selectionStartPoint = null;
         break;
       }

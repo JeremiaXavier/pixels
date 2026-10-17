@@ -70,18 +70,31 @@ class WorkerClient {
 
     const id = `req_${++this.requestCounter}_${Date.now()}`;
 
-    return new Promise<ImageData>((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
+    return new Promise<ImageData>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        console.warn('Worker timed out, executing filter on main thread');
+        resolve(executeFilter(imageData, params, selection));
+      }, 5000);
+
+      this.pendingRequests.set(id, {
+        resolve: (data) => {
+          clearTimeout(timeout);
+          resolve(data);
+        },
+        reject: (err) => {
+          clearTimeout(timeout);
+          console.warn('Worker failed, executing filter on main thread:', err);
+          resolve(executeFilter(imageData, params, selection));
+        },
+      });
 
       try {
-        // Send to worker
-        this.worker!.postMessage(
-          { id, imageData, params, selection },
-          [imageData.data.buffer]
-        );
+        this.worker!.postMessage({ id, imageData, params, selection });
       } catch (err) {
-        // Transfer failed, fallback to main thread
+        clearTimeout(timeout);
         this.pendingRequests.delete(id);
+        console.warn('Worker postMessage failed, falling back to main thread:', err);
         resolve(executeFilter(imageData, params, selection));
       }
     });

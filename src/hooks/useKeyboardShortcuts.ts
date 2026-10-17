@@ -77,7 +77,11 @@ export function useKeyboardShortcuts() {
             return;
           case 'u':
             e.preventDefault();
-            setActiveTool('shape-rect');
+            setActiveTool(e.shiftKey ? 'shape-ellipse' : 'shape-rect');
+            return;
+          case 'l':
+            e.preventDefault();
+            setActiveTool('shape-line');
             return;
           case 'i':
             e.preventDefault();

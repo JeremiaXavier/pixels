@@ -3,22 +3,27 @@ import { useDocumentStore } from '@/store/documentStore';
 import { useEditorStore } from '@/store/editorStore';
 import { toolManager, ToolPointerEvent } from '@/tools/ToolManager';
 import { Compositor } from '@/canvas/Compositor';
-import { screenToDocument, calculateFitZoom } from '@/canvas/CoordinateSystem';
+import { calculateFitZoom } from '@/canvas/CoordinateSystem';
 import { historyManager } from '@/history/HistoryManager';
+import { LayerFactory } from '@/document/Layer';
 import { Check, X as CloseIcon } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 export const CanvasWorkspace: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const documentFrameRef = useRef<HTMLDivElement>(null);
   const mainCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const document = useDocumentStore((state) => state.document);
-  const { updateLayer, cropDocument } = useDocumentStore();
+  const { updateLayer, cropDocument, addLayer, setActiveLayer } = useDocumentStore();
   const {
     activeTool,
+    toolOptions,
     viewport,
     setZoom,
     setPan,
     setCursorCoordinates,
+    setActivePanelTab,
   } = useEditorStore();
 
   const [isSpacePressed, setIsSpacePressed] = useState(false);
@@ -38,7 +43,19 @@ export const CanvasWorkspace: React.FC = () => {
   const isCroppingRef = useRef(false);
   const cropStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Fit to screen on initial load
+  // Interactive shape drawing state
+  const [shapePreview, setShapePreview] = useState<{
+    shapeType: 'rectangle' | 'ellipse' | 'line';
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    points?: number[];
+  } | null>(null);
+  const isDrawingShapeRef = useRef(false);
+  const shapeStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Fit to screen on initial document load or id change
   useEffect(() => {
     if (document && containerRef.current) {
       const { clientWidth, clientHeight } = containerRef.current;
@@ -93,36 +110,34 @@ export const CanvasWorkspace: React.FC = () => {
     [document, viewport, setZoom, setPan]
   );
 
-  // Convert React mouse event to ToolPointerEvent with exact document coordinates
-  const getToolEvent = (e: React.MouseEvent): ToolPointerEvent | null => {
-    if (!document || !containerRef.current) return null;
-    const rect = containerRef.current.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
+  // Convert mouse / pointer coordinates to document coordinates
+  const getToolEvent = useCallback(
+    (e: React.MouseEvent | MouseEvent): ToolPointerEvent | null => {
+      if (!document || !documentFrameRef.current) return null;
+      const frameRect = documentFrameRef.current.getBoundingClientRect();
 
-    const docPt = screenToDocument(
-      { x: screenX, y: screenY },
-      viewport,
-      document.width,
-      document.height,
-      rect.width,
-      rect.height
-    );
+      const screenX = e.clientX - frameRect.left;
+      const screenY = e.clientY - frameRect.top;
 
-    return {
-      docPoint: docPt,
-      screenPoint: { x: screenX, y: screenY },
-      shiftKey: e.shiftKey,
-      altKey: e.altKey,
-      ctrlKey: e.ctrlKey || e.metaKey,
-      button: e.button,
-    };
-  };
+      const docX = screenX / viewport.zoom;
+      const docY = screenY / viewport.zoom;
+
+      return {
+        docPoint: { x: docX, y: docY },
+        screenPoint: { x: e.clientX, y: e.clientY },
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        ctrlKey: e.ctrlKey || e.metaKey,
+        button: e.button,
+      };
+    },
+    [document, viewport.zoom]
+  );
 
   const handlePointerDown = (e: React.MouseEvent) => {
-    if (!document || !containerRef.current) return;
+    if (!document) return;
 
-    // Middle click or spacebar pan
+    // Middle click or spacebar pan or hand tool
     if (e.button === 1 || isSpacePressed || activeTool === 'hand') {
       setIsPanning(true);
       panStartRef.current = { x: e.clientX, y: e.clientY };
@@ -131,6 +146,73 @@ export const CanvasWorkspace: React.FC = () => {
 
     const toolEvt = getToolEvent(e);
     if (!toolEvt) return;
+
+    // Handle Text Tool click
+    if (activeTool === 'text') {
+      const docX = Math.round(toolEvt.docPoint.x);
+      const docY = Math.round(toolEvt.docPoint.y);
+
+      // Check if user clicked an existing text layer to activate it
+      const existingTextLayer = document.layers
+        .slice()
+        .reverse()
+        .find(
+          (l) =>
+            l.type === 'text' &&
+            l.visible &&
+            !l.locked &&
+            docX >= l.x &&
+            docX <= l.x + l.width &&
+            docY >= l.y &&
+            docY <= l.y + l.height
+        );
+
+      if (existingTextLayer) {
+        setActiveLayer(existingTextLayer.id);
+        setActivePanelTab('properties');
+        return;
+      }
+
+      // Create new text layer at click position
+      const { toolOptions: tOpts, foregroundColor } = useEditorStore.getState();
+      const newTextLayer = LayerFactory.createTextLayer('Double click to edit', docX, docY, {
+        fontSize: tOpts.text.fontSize,
+        fontFamily: tOpts.text.fontFamily,
+        fill: tOpts.text.fill || foregroundColor,
+        align: tOpts.text.align,
+        bold: tOpts.text.bold,
+        italic: tOpts.text.italic,
+      });
+      addLayer(newTextLayer);
+      setActivePanelTab('properties');
+      return;
+    }
+
+    // Handle Shape Tools (rectangle, ellipse, line)
+    if (
+      activeTool === 'shape-rect' ||
+      activeTool === 'shape-ellipse' ||
+      activeTool === 'shape-line'
+    ) {
+      const shapeType =
+        activeTool === 'shape-ellipse'
+          ? 'ellipse'
+          : activeTool === 'shape-line'
+          ? 'line'
+          : 'rectangle';
+
+      isDrawingShapeRef.current = true;
+      shapeStartRef.current = { x: toolEvt.docPoint.x, y: toolEvt.docPoint.y };
+      setShapePreview({
+        shapeType,
+        x: toolEvt.docPoint.x,
+        y: toolEvt.docPoint.y,
+        w: 0,
+        h: 0,
+        points: [toolEvt.docPoint.x, toolEvt.docPoint.y, toolEvt.docPoint.x, toolEvt.docPoint.y],
+      });
+      return;
+    }
 
     // Handle Move Tool
     if (activeTool === 'move' && document.activeLayerId) {
@@ -150,22 +232,27 @@ export const CanvasWorkspace: React.FC = () => {
     // Handle Crop Tool
     if (activeTool === 'crop') {
       isCroppingRef.current = true;
-      cropStartRef.current = { x: toolEvt.docPoint.x, y: toolEvt.docPoint.y };
-      setCropRect({ x: toolEvt.docPoint.x, y: toolEvt.docPoint.y, w: 0, h: 0 });
+      const clampedX = Math.max(0, Math.min(document.width, toolEvt.docPoint.x));
+      const clampedY = Math.max(0, Math.min(document.height, toolEvt.docPoint.y));
+      cropStartRef.current = { x: clampedX, y: clampedY };
+      setCropRect({ x: clampedX, y: clampedY, w: 0, h: 0 });
       return;
     }
 
     // Standard drawing / selection / eyedropper / zoom
     toolManager.handlePointerDown(toolEvt);
 
-    // Immediate visual composite sync
-    if (mainCanvasRef.current && (activeTool === 'brush' || activeTool === 'pencil' || activeTool === 'eraser')) {
+    // Immediate visual composite sync for continuous tools
+    if (
+      mainCanvasRef.current &&
+      (activeTool === 'brush' || activeTool === 'pencil' || activeTool === 'eraser')
+    ) {
       Compositor.compositeToCanvas(document, mainCanvasRef.current);
     }
   };
 
   const handlePointerMove = (e: React.MouseEvent) => {
-    if (!document || !containerRef.current) return;
+    if (!document) return;
 
     // Spacebar / hand pan
     if (isPanning && panStartRef.current) {
@@ -181,6 +268,36 @@ export const CanvasWorkspace: React.FC = () => {
 
     setCursorCoordinates(toolEvt.docPoint.x, toolEvt.docPoint.y);
 
+    // Handle Shape Tool dragging preview
+    if (isDrawingShapeRef.current && shapeStartRef.current) {
+      const sx = shapeStartRef.current.x;
+      const sy = shapeStartRef.current.y;
+      const cx = toolEvt.docPoint.x;
+      const cy = toolEvt.docPoint.y;
+
+      const shapeType =
+        activeTool === 'shape-ellipse'
+          ? 'ellipse'
+          : activeTool === 'shape-line'
+          ? 'line'
+          : 'rectangle';
+
+      const minX = Math.round(Math.min(sx, cx));
+      const minY = Math.round(Math.min(sy, cy));
+      const w = Math.round(Math.abs(cx - sx));
+      const h = Math.round(Math.abs(cy - sy));
+
+      setShapePreview({
+        shapeType,
+        x: minX,
+        y: minY,
+        w,
+        h,
+        points: [Math.round(sx), Math.round(sy), Math.round(cx), Math.round(cy)],
+      });
+      return;
+    }
+
     // Handle Move Tool dragging
     if (isMovingLayerRef.current && moveStartRef.current && document.activeLayerId) {
       const dx = toolEvt.docPoint.x - moveStartRef.current.docX;
@@ -193,6 +310,12 @@ export const CanvasWorkspace: React.FC = () => {
         },
         false
       );
+
+      // Immediate visual update during move
+      if (mainCanvasRef.current) {
+        const curDoc = useDocumentStore.getState().document;
+        if (curDoc) Compositor.compositeToCanvas(curDoc, mainCanvasRef.current);
+      }
       return;
     }
 
@@ -203,79 +326,220 @@ export const CanvasWorkspace: React.FC = () => {
       const cx = toolEvt.docPoint.x;
       const cy = toolEvt.docPoint.y;
 
-      const minX = Math.min(sx, cx);
-      const minY = Math.min(sy, cy);
-      const w = Math.abs(cx - sx);
-      const h = Math.abs(cy - sy);
+      const clampedX = Math.max(0, Math.min(document.width, cx));
+      const clampedY = Math.max(0, Math.min(document.height, cy));
+
+      let minX = Math.round(Math.min(sx, clampedX));
+      let minY = Math.round(Math.min(sy, clampedY));
+      let w = Math.round(Math.abs(clampedX - sx));
+      let h = Math.round(Math.abs(clampedY - sy));
+
+      const ratio = toolOptions.crop.aspectRatio;
+      if (ratio !== 'free' && w > 0 && h > 0) {
+        const aspectMap = {
+          '1:1': 1,
+          '16:9': 16 / 9,
+          '4:3': 4 / 3,
+          '3:2': 3 / 2,
+        };
+        const targetRatio = aspectMap[ratio];
+        if (targetRatio) {
+          h = Math.round(w / targetRatio);
+          if (minY + h > document.height) {
+            h = document.height - minY;
+            w = Math.round(h * targetRatio);
+          }
+        }
+      }
 
       setCropRect({ x: minX, y: minY, w, h });
       return;
     }
 
+    // Drawing / Selection / Eyedropper move
     toolManager.handlePointerMove(toolEvt);
 
-    if (mainCanvasRef.current && (activeTool === 'brush' || activeTool === 'pencil' || activeTool === 'eraser')) {
+    if (
+      mainCanvasRef.current &&
+      (activeTool === 'brush' || activeTool === 'pencil' || activeTool === 'eraser')
+    ) {
       Compositor.compositeToCanvas(document, mainCanvasRef.current);
     }
   };
 
-  const handlePointerUp = (e: React.MouseEvent) => {
-    if (isPanning) {
-      setIsPanning(false);
-      panStartRef.current = null;
-      return;
-    }
-
-    const toolEvt = getToolEvent(e);
-
-    // Handle Move Tool drop
-    if (isMovingLayerRef.current && moveStartRef.current && document?.activeLayerId) {
-      isMovingLayerRef.current = false;
-      const layerId = document.activeLayerId;
-      const activeLayer = document.layers.find((l) => l.id === layerId);
-      const startX = moveStartRef.current.layerX;
-      const startY = moveStartRef.current.layerY;
-      const endX = activeLayer?.x ?? startX;
-      const endY = activeLayer?.y ?? startY;
-
-      if (startX !== endX || startY !== endY) {
-        historyManager.push({
-          id: `move_${Date.now()}`,
-          type: 'layer_transform',
-          description: 'Move Layer',
-          timestamp: Date.now(),
-          undo: () => updateLayer(layerId, { x: startX, y: startY }, false),
-          redo: () => updateLayer(layerId, { x: endX, y: endY }, false),
-        });
+  const handlePointerUp = useCallback(
+    (e: React.MouseEvent | MouseEvent) => {
+      if (isPanning) {
+        setIsPanning(false);
+        panStartRef.current = null;
+        return;
       }
-      moveStartRef.current = null;
-      return;
-    }
 
-    // Handle Crop Tool finish
-    if (isCroppingRef.current) {
+      const toolEvt = getToolEvent(e);
+
+      // Handle Shape Tool finish
+      if (isDrawingShapeRef.current && shapeStartRef.current) {
+        isDrawingShapeRef.current = false;
+        const sx = shapeStartRef.current.x;
+        const sy = shapeStartRef.current.y;
+        const cx = toolEvt ? toolEvt.docPoint.x : sx;
+        const cy = toolEvt ? toolEvt.docPoint.y : sy;
+
+        const shapeType =
+          activeTool === 'shape-ellipse'
+            ? 'ellipse'
+            : activeTool === 'shape-line'
+            ? 'line'
+            : 'rectangle';
+
+        const minX = Math.round(Math.min(sx, cx));
+        const minY = Math.round(Math.min(sy, cy));
+        const w = Math.round(Math.abs(cx - sx));
+        const h = Math.round(Math.abs(cy - sy));
+        const dist = Math.hypot(cx - sx, cy - sy);
+
+        shapeStartRef.current = null;
+        setShapePreview(null);
+
+        if (dist >= 3) {
+          const { toolOptions: sOpts, foregroundColor } = useEditorStore.getState();
+          const strokeColor = sOpts.shape.stroke || '#ffffff';
+          const fillColor = sOpts.shape.fill || foregroundColor;
+          const strokeWidth = sOpts.shape.strokeWidth || 2;
+
+          const newLayer = LayerFactory.createShapeLayer(
+            shapeType,
+            minX,
+            minY,
+            Math.max(1, w),
+            Math.max(1, h),
+            {
+              fill: shapeType === 'line' ? 'transparent' : fillColor,
+              stroke: strokeColor,
+              strokeWidth,
+              points: [Math.round(sx), Math.round(sy), Math.round(cx), Math.round(cy)],
+            }
+          );
+          addLayer(newLayer);
+        }
+        return;
+      }
+
+      // Handle Move Tool drop
+      if (isMovingLayerRef.current && moveStartRef.current && document?.activeLayerId) {
+        isMovingLayerRef.current = false;
+        const layerId = document.activeLayerId;
+        const curDoc = useDocumentStore.getState().document;
+        const activeLayer = curDoc?.layers.find((l) => l.id === layerId);
+        const startX = moveStartRef.current.layerX;
+        const startY = moveStartRef.current.layerY;
+        const endX = activeLayer?.x ?? startX;
+        const endY = activeLayer?.y ?? startY;
+
+        if (startX !== endX || startY !== endY) {
+          historyManager.push({
+            id: `move_${Date.now()}`,
+            type: 'layer_transform',
+            description: 'Move Layer',
+            timestamp: Date.now(),
+            undo: () => updateLayer(layerId, { x: startX, y: startY }, false),
+            redo: () => updateLayer(layerId, { x: endX, y: endY }, false),
+          });
+        }
+        moveStartRef.current = null;
+        return;
+      }
+
+      // Handle Crop Tool drag finish
+      if (isCroppingRef.current) {
+        isCroppingRef.current = false;
+        cropStartRef.current = null;
+        return;
+      }
+
+      if (toolEvt) {
+        toolManager.handlePointerUp(toolEvt);
+      }
+
+      if (mainCanvasRef.current && document) {
+        Compositor.compositeToCanvas(document, mainCanvasRef.current);
+      }
+    },
+    [document, getToolEvent, isPanning, activeTool, addLayer, updateLayer]
+  );
+
+  // Global window listeners so dragging or drawing never gets stuck when mouse leaves window
+  useEffect(() => {
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      handlePointerUp(e);
+    };
+    const handleGlobalBlur = () => {
+      toolManager.cancelDrawing();
+      isMovingLayerRef.current = false;
       isCroppingRef.current = false;
-      cropStartRef.current = null;
-      return;
-    }
+      isDrawingShapeRef.current = false;
+      setIsPanning(false);
+      setShapePreview(null);
+    };
 
-    if (toolEvt) {
-      toolManager.handlePointerUp(toolEvt);
-    }
-
-    if (mainCanvasRef.current && document) {
-      Compositor.compositeToCanvas(document, mainCanvasRef.current);
-    }
-  };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('blur', handleGlobalBlur);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('blur', handleGlobalBlur);
+    };
+  }, [handlePointerUp]);
 
   const handleApplyCrop = () => {
-    if (!cropRect || cropRect.w < 5 || cropRect.h < 5) return;
+    if (!document || !cropRect || cropRect.w < 5 || cropRect.h < 5) return;
     cropDocument(cropRect.x, cropRect.y, cropRect.w, cropRect.h);
+    const croppedW = cropRect.w;
+    const croppedH = cropRect.h;
     setCropRect(null);
+
+    // Realign viewport to fit new cropped document
+    if (containerRef.current) {
+      const { clientWidth, clientHeight } = containerRef.current;
+      const fit = calculateFitZoom(croppedW, croppedH, clientWidth, clientHeight);
+      setZoom(fit);
+      setPan(0, 0);
+    }
   };
 
   const handleCancelCrop = () => {
     setCropRect(null);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!document) return;
+    const toolEvt = getToolEvent(e);
+    if (!toolEvt) return;
+    const docX = Math.round(toolEvt.docPoint.x);
+    const docY = Math.round(toolEvt.docPoint.y);
+
+    const hitTextLayer = document.layers
+      .slice()
+      .reverse()
+      .find(
+        (l) =>
+          l.type === 'text' &&
+          l.visible &&
+          !l.locked &&
+          docX >= l.x &&
+          docX <= l.x + l.width &&
+          docY >= l.y &&
+          docY <= l.y + l.height
+      );
+
+    if (hitTextLayer) {
+      setActiveLayer(hitTextLayer.id);
+      setActivePanelTab('properties');
+      const currentText = (hitTextLayer as any).text || '';
+      const newText = prompt('Edit text content:', currentText);
+      if (newText !== null && newText !== undefined && newText !== currentText) {
+        updateLayer(hitTextLayer.id, { text: newText }, true, 'Edit Text');
+      }
+    }
   };
 
   // Cursor calculation
@@ -293,6 +557,9 @@ export const CanvasWorkspace: React.FC = () => {
       case 'select-rect':
       case 'select-ellipse':
       case 'crop':
+      case 'shape-rect':
+      case 'shape-ellipse':
+      case 'shape-line':
         return 'cursor-crosshair';
       case 'text':
         return 'cursor-text';
@@ -318,7 +585,6 @@ export const CanvasWorkspace: React.FC = () => {
       onWheel={handleWheel}
       onMouseDown={handlePointerDown}
       onMouseMove={handlePointerMove}
-      onMouseUp={handlePointerUp}
       onContextMenu={(e) => e.preventDefault()}
       className={`relative flex-1 bg-editor-workspace overflow-hidden flex items-center justify-center select-none ${getCursorClass()}`}
     >
@@ -332,6 +598,8 @@ export const CanvasWorkspace: React.FC = () => {
       >
         {/* Document Frame */}
         <div
+          ref={documentFrameRef}
+          onDoubleClick={handleDoubleClick}
           style={{
             width: document.width * viewport.zoom,
             height: document.height * viewport.zoom,
@@ -374,6 +642,48 @@ export const CanvasWorkspace: React.FC = () => {
                   stroke="#ffffff"
                   strokeWidth={1.5 / viewport.zoom}
                   className="marching-ants"
+                />
+              )}
+            </svg>
+          )}
+
+          {/* Live Shape Preview Overlay */}
+          {shapePreview && (
+            <svg
+              className="absolute inset-0 pointer-events-none w-full h-full"
+              viewBox={`0 0 ${document.width} ${document.height}`}
+            >
+              {shapePreview.shapeType === 'rectangle' && (
+                <rect
+                  x={shapePreview.x}
+                  y={shapePreview.y}
+                  width={shapePreview.w}
+                  height={shapePreview.h}
+                  fill={toolOptions.shape.fill || '#3b82f6'}
+                  stroke={toolOptions.shape.stroke || '#ffffff'}
+                  strokeWidth={Math.max(1, toolOptions.shape.strokeWidth) / viewport.zoom}
+                />
+              )}
+              {shapePreview.shapeType === 'ellipse' && (
+                <ellipse
+                  cx={shapePreview.x + shapePreview.w / 2}
+                  cy={shapePreview.y + shapePreview.h / 2}
+                  rx={Math.max(1, shapePreview.w / 2)}
+                  ry={Math.max(1, shapePreview.h / 2)}
+                  fill={toolOptions.shape.fill || '#3b82f6'}
+                  stroke={toolOptions.shape.stroke || '#ffffff'}
+                  strokeWidth={Math.max(1, toolOptions.shape.strokeWidth) / viewport.zoom}
+                />
+              )}
+              {shapePreview.shapeType === 'line' && shapePreview.points && (
+                <line
+                  x1={shapePreview.points[0]}
+                  y1={shapePreview.points[1]}
+                  x2={shapePreview.points[2]}
+                  y2={shapePreview.points[3]}
+                  stroke={toolOptions.shape.stroke || '#ffffff'}
+                  strokeWidth={Math.max(1, toolOptions.shape.strokeWidth) / viewport.zoom}
+                  strokeLinecap="round"
                 />
               )}
             </svg>

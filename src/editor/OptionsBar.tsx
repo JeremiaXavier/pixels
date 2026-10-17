@@ -310,11 +310,53 @@ export const OptionsBar: React.FC = () => {
               <Italic size={12} />
             </button>
           </div>
+
+          <div className="flex items-center bg-[#282830] rounded border border-[#383842] p-0.5">
+            <button
+              onClick={() => updateToolOptions('text', { align: 'left' })}
+              className={`p-1 rounded ${
+                toolOptions.text.align === 'left' ? 'bg-editor-accent text-white' : 'text-editor-muted'
+              }`}
+              title="Align Left"
+            >
+              <AlignLeft size={12} />
+            </button>
+            <button
+              onClick={() => updateToolOptions('text', { align: 'center' })}
+              className={`p-1 rounded ${
+                toolOptions.text.align === 'center' ? 'bg-editor-accent text-white' : 'text-editor-muted'
+              }`}
+              title="Align Center"
+            >
+              <AlignCenter size={12} />
+            </button>
+            <button
+              onClick={() => updateToolOptions('text', { align: 'right' })}
+              className={`p-1 rounded ${
+                toolOptions.text.align === 'right' ? 'bg-editor-accent text-white' : 'text-editor-muted'
+              }`}
+              title="Align Right"
+            >
+              <AlignRight size={12} />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-editor-muted">Color:</span>
+            <input
+              type="color"
+              value={toolOptions.text.fill || '#ffffff'}
+              onChange={(e) => updateToolOptions('text', { fill: e.target.value })}
+              className="w-5 h-5 rounded border border-[#383842] bg-transparent cursor-pointer"
+              title="Text Color"
+            />
+          </div>
+          <span className="text-editor-dim">Click on canvas to place text</span>
         </div>
       )}
 
       {/* Shape Options */}
-      {activeTool === 'shape-rect' && (
+      {(activeTool === 'shape-rect' || activeTool === 'shape-ellipse' || activeTool === 'shape-line') && (
         <div className="flex items-center gap-3 text-[11px]">
           <Button variant="primary" size="sm" onClick={handleAddShape} className="h-6">
             <Plus size={12} />
@@ -323,9 +365,12 @@ export const OptionsBar: React.FC = () => {
 
           <div className="flex items-center gap-1">
             <button
-              onClick={() => updateToolOptions('shape', { shapeType: 'rectangle' })}
+              onClick={() => {
+                updateToolOptions('shape', { shapeType: 'rectangle' });
+                useEditorStore.getState().setActiveTool('shape-rect');
+              }}
               className={`p-1 rounded ${
-                toolOptions.shape.shapeType === 'rectangle'
+                activeTool === 'shape-rect'
                   ? 'bg-editor-accent text-white'
                   : 'text-editor-muted'
               }`}
@@ -334,9 +379,12 @@ export const OptionsBar: React.FC = () => {
               <Square size={13} />
             </button>
             <button
-              onClick={() => updateToolOptions('shape', { shapeType: 'ellipse' })}
+              onClick={() => {
+                updateToolOptions('shape', { shapeType: 'ellipse' });
+                useEditorStore.getState().setActiveTool('shape-ellipse');
+              }}
               className={`p-1 rounded ${
-                toolOptions.shape.shapeType === 'ellipse'
+                activeTool === 'shape-ellipse'
                   ? 'bg-editor-accent text-white'
                   : 'text-editor-muted'
               }`}
@@ -345,9 +393,12 @@ export const OptionsBar: React.FC = () => {
               <Circle size={13} />
             </button>
             <button
-              onClick={() => updateToolOptions('shape', { shapeType: 'line' })}
+              onClick={() => {
+                updateToolOptions('shape', { shapeType: 'line' });
+                useEditorStore.getState().setActiveTool('shape-line');
+              }}
               className={`p-1 rounded ${
-                toolOptions.shape.shapeType === 'line'
+                activeTool === 'shape-line'
                   ? 'bg-editor-accent text-white'
                   : 'text-editor-muted'
               }`}
@@ -358,7 +409,25 @@ export const OptionsBar: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <span className="text-editor-muted">Fill:</span>
+            <input
+              type="color"
+              value={toolOptions.shape.fill}
+              onChange={(e) => updateToolOptions('shape', { fill: e.target.value })}
+              className="w-5 h-5 rounded border border-[#383842] bg-transparent cursor-pointer"
+              title="Fill Color"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5">
             <span className="text-editor-muted">Stroke:</span>
+            <input
+              type="color"
+              value={toolOptions.shape.stroke}
+              onChange={(e) => updateToolOptions('shape', { stroke: e.target.value })}
+              className="w-5 h-5 rounded border border-[#383842] bg-transparent cursor-pointer"
+              title="Stroke Color"
+            />
             <input
               type="number"
               min={0}
@@ -368,6 +437,7 @@ export const OptionsBar: React.FC = () => {
               className="w-12 bg-[#282830] text-editor-text border border-[#383842] rounded px-1.5 py-0.5 text-xs font-mono"
             />
           </div>
+          <span className="text-editor-dim">Drag on canvas to draw shape</span>
         </div>
       )}
 

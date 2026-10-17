@@ -485,7 +485,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const ctx = rLayer.canvas.getContext('2d');
     if (!ctx) return;
 
-    // Snapshot before filter for undo
+    // Snapshot before filter for instant synchronous undo
+    const beforeCanvas = document.createElement('canvas');
+    beforeCanvas.width = rLayer.canvas.width;
+    beforeCanvas.height = rLayer.canvas.height;
+    beforeCanvas.getContext('2d')?.drawImage(rLayer.canvas, 0, 0);
     const beforeDataUrl = rLayer.canvas.toDataURL();
 
     // Get current ImageData
@@ -495,6 +499,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const resultData = await workerClient.processImage(imgData, params, doc.selection);
 
     ctx.putImageData(resultData, 0, 0);
+
+    const afterCanvas = document.createElement('canvas');
+    afterCanvas.width = rLayer.canvas.width;
+    afterCanvas.height = rLayer.canvas.height;
+    afterCanvas.getContext('2d')?.drawImage(rLayer.canvas, 0, 0);
     const afterDataUrl = rLayer.canvas.toDataURL();
 
     const layerId = rLayer.id;
@@ -509,14 +518,20 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const target = cDoc.layers.find((l) => l.id === layerId) as RasterLayer;
         if (target && target.canvas) {
           const tCtx = target.canvas.getContext('2d');
-          const img = new Image();
-          img.src = beforeDataUrl;
-          img.onload = () => {
-            tCtx?.clearRect(0, 0, target.width, target.height);
-            tCtx?.drawImage(img, 0, 0);
-            target.dataUrl = beforeDataUrl;
-            set({ document: { ...cDoc, isDirty: true }, saveStatus: 'unsaved' });
-          };
+          tCtx?.clearRect(0, 0, target.width, target.height);
+          tCtx?.drawImage(beforeCanvas, 0, 0);
+          target.dataUrl = beforeDataUrl;
+          set({
+            document: {
+              ...cDoc,
+              layers: cDoc.layers.map((l) =>
+                l.id === layerId ? { ...l, dataUrl: beforeDataUrl } : l
+              ),
+              isDirty: true,
+              updatedAt: Date.now(),
+            },
+            saveStatus: 'unsaved',
+          });
         }
       },
       redo: () => {
@@ -525,14 +540,20 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const target = cDoc.layers.find((l) => l.id === layerId) as RasterLayer;
         if (target && target.canvas) {
           const tCtx = target.canvas.getContext('2d');
-          const img = new Image();
-          img.src = afterDataUrl;
-          img.onload = () => {
-            tCtx?.clearRect(0, 0, target.width, target.height);
-            tCtx?.drawImage(img, 0, 0);
-            target.dataUrl = afterDataUrl;
-            set({ document: { ...cDoc, isDirty: true }, saveStatus: 'unsaved' });
-          };
+          tCtx?.clearRect(0, 0, target.width, target.height);
+          tCtx?.drawImage(afterCanvas, 0, 0);
+          target.dataUrl = afterDataUrl;
+          set({
+            document: {
+              ...cDoc,
+              layers: cDoc.layers.map((l) =>
+                l.id === layerId ? { ...l, dataUrl: afterDataUrl } : l
+              ),
+              isDirty: true,
+              updatedAt: Date.now(),
+            },
+            saveStatus: 'unsaved',
+          });
         }
       },
     });
@@ -541,7 +562,9 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     set({
       document: {
         ...doc,
+        layers: doc.layers.map((l) => (l.id === layerId ? { ...l, dataUrl: afterDataUrl } : l)),
         isDirty: true,
+        updatedAt: Date.now(),
       },
       saveStatus: 'unsaved',
     });
@@ -553,11 +576,14 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     const layer = doc.layers.find((l) => l.id === layerId) as RasterLayer;
     if (!layer || !layer.canvas) return;
 
-    layer.dataUrl = layer.canvas.toDataURL();
+    const dataUrl = layer.canvas.toDataURL();
+    layer.dataUrl = dataUrl;
     set({
       document: {
         ...doc,
+        layers: doc.layers.map((l) => (l.id === layerId ? { ...l, dataUrl } : l)),
         isDirty: true,
+        updatedAt: Date.now(),
       },
       saveStatus: 'unsaved',
     });
